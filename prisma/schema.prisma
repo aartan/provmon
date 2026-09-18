@@ -1,0 +1,187 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum AvailabilityStatus {
+  IN_STOCK
+  OUT_OF_STOCK
+  PREORDER
+  UNKNOWN
+}
+
+enum MonitoringCondition {
+  BACK_IN_STOCK
+  PRICE_DROP
+  BOTH
+}
+
+enum MonitoringStatus {
+  ACTIVE
+  PAUSED
+}
+
+enum CheckStatus {
+  SUCCESS
+  ERROR
+  SKIPPED
+}
+
+enum NotificationType {
+  BACK_IN_STOCK
+  PRICE_DROP
+  PRICE_DROP_SUBSEQUENT
+  TEST
+}
+
+enum NotificationStatus {
+  SENT
+  FAILED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String   @map("password_hash")
+  image        String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  subscriptions     MonitoringSubscription[]
+  notifications     Notification[]
+  notificationPrefs NotificationPreference?
+
+  @@map("users")
+}
+
+model Product {
+  id                 String             @id @default(cuid())
+  retailerId         String             @map("retailer_id")
+  retailerProductId  String?            @map("retailer_product_id")
+  name               String
+  url                String
+  imageUrl           String?            @map("image_url")
+  currency           String
+  currentPriceMinor  Int?               @map("current_price_minor")
+  currentAvailability AvailabilityStatus @map("current_availability")
+  lastCheckedAt      DateTime?          @map("last_checked_at")
+  lastSuccessfulAt   DateTime?          @map("last_successful_at")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  subscriptions            MonitoringSubscription[]
+  priceObservations        PriceObservation[]
+  availabilityObservations AvailabilityObservation[]
+
+  @@unique([retailerId, retailerProductId])
+  @@map("products")
+}
+
+model MonitoringSubscription {
+  id                String            @id @default(cuid())
+  userId            String            @map("user_id")
+  productId         String            @map("product_id")
+  targetPriceMinor  Int?              @map("target_price_minor")
+  condition         MonitoringCondition
+  intervalMinutes   Int               @default(60) @map("interval_minutes")
+  status            MonitoringStatus  @default(ACTIVE)
+  nextCheckAt       DateTime?         @map("next_check_at")
+  notificationState Json?             @map("notification_state")
+  lastNotifiedAt    DateTime?         @map("last_notified_at")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product       Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  checks        MonitoringCheck[]
+  notifications Notification[]
+
+  @@unique([userId, productId])
+  @@index([status, nextCheckAt])
+  @@map("monitoring_subscriptions")
+}
+
+model PriceObservation {
+  id         String   @id @default(cuid())
+  productId  String   @map("product_id")
+  priceMinor Int      @map("price_minor")
+  currency   String
+  observedAt DateTime @default(now()) @map("observed_at")
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, observedAt])
+  @@map("price_observations")
+}
+
+model AvailabilityObservation {
+  id           String             @id @default(cuid())
+  productId    String             @map("product_id")
+  availability AvailabilityStatus
+  observedAt   DateTime           @default(now()) @map("observed_at")
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, observedAt])
+  @@map("availability_observations")
+}
+
+model MonitoringCheck {
+  id             String             @id @default(cuid())
+  subscriptionId String             @map("subscription_id")
+  productId      String             @map("product_id")
+  status         CheckStatus
+  availability   AvailabilityStatus?
+  priceMinor     Int?               @map("price_minor")
+  errorCode      String?            @map("error_code")
+  errorMessage   String?            @map("error_message")
+  durationMs     Int?               @map("duration_ms")
+  startedAt      DateTime           @default(now()) @map("started_at")
+  finishedAt     DateTime?          @map("finished_at")
+
+  subscription MonitoringSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId, startedAt])
+  @@map("monitoring_checks")
+}
+
+model Notification {
+  id                String             @id @default(cuid())
+  subscriptionId    String             @map("subscription_id")
+  userId            String             @map("user_id")
+  type              NotificationType
+  subject           String
+  body              String
+  provider          String
+  providerMessageId String?            @map("provider_message_id")
+  status            NotificationStatus
+  priceMinor        Int?               @map("price_minor")
+  availability      AvailabilityStatus?
+  sentAt            DateTime           @default(now()) @map("sent_at")
+
+  subscription MonitoringSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, sentAt])
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  id                  String    @id @default(cuid())
+  userId              String    @unique @map("user_id")
+  emailEnabled        Boolean   @default(true) @map("email_enabled")
+  notifyBackInStock   Boolean   @default(true) @map("notify_back_in_stock")
+  notifyPriceDrop     Boolean   @default(true) @map("notify_price_drop")
+  subsequentDropPct   Int?      @map("subsequent_drop_pct")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_preferences")
+}
