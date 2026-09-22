@@ -6,13 +6,17 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
-      // "server-only" throws when imported outside React Server Components;
-      // in tests it is an inert module.
-      "server-only": path.resolve(import.meta.dirname, "test/stubs/server-only.ts"),
+      "@test": path.resolve(import.meta.dirname, "test"),
     },
   },
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
+    globalSetup: ["test/setup/global-setup.ts"],
+    setupFiles: ["test/setup/setup-env.ts"],
+    // Integration tests share one database and Redis instance.
+    fileParallelism: false,
+    testTimeout: 20_000,
+    hookTimeout: 30_000,
   },
 });

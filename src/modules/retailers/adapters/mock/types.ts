@@ -35,6 +35,11 @@ export interface MockStore {
   list(): MockProductState[];
 }
 
+/** Default store with a reset() that restores the seeded fixtures. */
+export interface DefaultMockStore extends MockStore {
+  reset(): void;
+}
+
 export const MOCK_RETAILER_DOMAIN = "mock-retailer.test";
 
 /** Stable SKUs the dev UI and tests can rely on. */

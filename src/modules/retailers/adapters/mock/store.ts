@@ -1,4 +1,5 @@
 import type {
+  DefaultMockStore,
   MockErrorState,
   MockProductState,
   MockStore,
@@ -76,8 +77,8 @@ export function createMockStore(
  * created lazily on first access with a stable state, so the dev UI can
  * add any SKU without prior setup.
  */
-export function createDefaultMockStore(): MockStore {
-  const store = createMockStore({
+export function createDefaultMockStore(): DefaultMockStore {
+  const seededStates: Record<string, MockProductState> = {
     "in-stock": {
       name: "Mock Laptop 15\" — In Stock",
       imageUrl: "",
@@ -113,7 +114,9 @@ export function createDefaultMockStore(): MockStore {
       priceMinor: 5999,
       availability: "IN_STOCK",
     },
-  });
+  };
+
+  const store = createMockStore(seededStates);
 
   // Products without a stored state exist and are in stock by default.
   const baseGet = store.get.bind(store);
@@ -150,6 +153,12 @@ export function createDefaultMockStore(): MockStore {
     },
     clear() {
       baseClear();
+    },
+    reset() {
+      baseClear();
+      for (const [sku, state] of Object.entries(seededStates)) {
+        store.set(sku, { ...state });
+      }
     },
   };
 }

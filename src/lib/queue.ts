@@ -1,4 +1,3 @@
-import "server-only";
 
 import { Queue, QueueOptions } from "bullmq";
 
