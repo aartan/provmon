@@ -31,9 +31,17 @@ export interface SubscriptionNotificationState {
   priceDropArmed: boolean;
 }
 
-export function defaultNotificationState(): SubscriptionNotificationState {
+/**
+ * Initial state for a new subscription. `initialAvailability` records the
+ * availability observed when the user subscribed, so a product that is
+ * already in stock does not produce an instant "back in stock" email,
+ * while one that is out of stock may notify when it returns.
+ */
+export function defaultNotificationState(
+  initialAvailability: AvailabilityStatus | null = null,
+): SubscriptionNotificationState {
   return {
-    lastNotifiedAvailability: null,
+    lastNotifiedAvailability: initialAvailability,
     lastNotifiedPriceMinor: null,
     priceDropArmed: true,
   };

@@ -39,5 +39,6 @@ export async function createTestUser(email = "test@example.com"): Promise<string
   const user = await db.user.create({
     data: { email, passwordHash: "not-a-real-hash", name: "Test User" },
   });
+  await db.notificationPreference.create({ data: { userId: user.id } });
   return user.id;
 }

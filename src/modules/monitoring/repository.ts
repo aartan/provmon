@@ -41,6 +41,8 @@ export interface CreateSubscriptionInput {
   targetPriceMinor?: number;
   condition: MonitoringCondition;
   intervalMinutes: number;
+  /** Availability observed at subscription time — seeds the dedup state. */
+  initialAvailability?: "IN_STOCK" | "OUT_OF_STOCK" | "PREORDER" | "UNKNOWN";
 }
 
 export async function createSubscription(
@@ -56,8 +58,9 @@ export async function createSubscription(
       status: "ACTIVE",
       // First check runs on the next sweep.
       nextCheckAt: new Date(),
-      notificationState:
-        defaultNotificationState() as unknown as Prisma.InputJsonValue,
+      notificationState: defaultNotificationState(
+        input.initialAvailability ?? null,
+      ) as unknown as Prisma.InputJsonValue,
     },
     include: {
       product: {

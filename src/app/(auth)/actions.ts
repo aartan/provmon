@@ -79,7 +79,10 @@ export async function register(
   }
 
   const passwordHash = await hashPassword(password);
-  await db.user.create({ data: { email, name, passwordHash } });
+  const user = await db.user.create({ data: { email, name, passwordHash } });
+  await db.notificationPreference.create({
+    data: { userId: user.id },
+  });
   logger.info({ component: "auth" }, "user registered");
 
   // Throws NEXT_REDIRECT on success, which Next.js handles.

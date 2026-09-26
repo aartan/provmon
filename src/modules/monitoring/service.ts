@@ -19,6 +19,7 @@ import {
   findSubscription,
   recordCheck,
 } from "@/modules/monitoring/repository";
+import { handleCheckOutcome } from "@/modules/notifications/notification.service";
 import {
   createSubscriptionSchema,
   requiresTargetPrice,
@@ -145,6 +146,7 @@ export async function addMonitoringSubscription(
     targetPriceMinor: input.targetPriceMinor,
     condition: input.condition,
     intervalMinutes: input.intervalMinutes,
+    initialAvailability: parsedDetails.data.availability,
   });
 }
 
@@ -244,7 +246,7 @@ export async function processCheckJob(data: CheckJobData): Promise<CheckOutcome>
       durationMs: Date.now() - startedAt,
     });
 
-    return {
+    const outcome: CheckOutcome = {
       subscriptionId: subscription.id,
       productId: product.id,
       previous,
@@ -254,6 +256,18 @@ export async function processCheckJob(data: CheckJobData): Promise<CheckOutcome>
       },
       success: true,
     };
+
+    // Notification evaluation must never fail the check itself.
+    try {
+      await handleCheckOutcome(subscription.id, outcome);
+    } catch (error) {
+      logger.error(
+        { component: "monitoring", subscriptionId: subscription.id, err: error },
+        "notification evaluation failed",
+      );
+    }
+
+    return outcome;
   } catch (error) {
     if (isRetailerError(error)) {
       logger.warn(

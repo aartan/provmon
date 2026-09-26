@@ -152,7 +152,7 @@ model MonitoringCheck {
 
 model Notification {
   id                String             @id @default(cuid())
-  subscriptionId    String             @map("subscription_id")
+  subscriptionId    String?            @map("subscription_id")
   userId            String             @map("user_id")
   type              NotificationType
   subject           String
@@ -164,7 +164,7 @@ model Notification {
   availability      AvailabilityStatus?
   sentAt            DateTime           @default(now()) @map("sent_at")
 
-  subscription MonitoringSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  subscription MonitoringSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
   user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, sentAt])
