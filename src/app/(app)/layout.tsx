@@ -23,6 +23,15 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
               <Link href="/dashboard" className="hover:text-foreground">
                 Dashboard
               </Link>
+              <Link href="/products" className="hover:text-foreground">
+                Products
+              </Link>
+              <Link href="/products/add" className="hover:text-foreground">
+                Add product
+              </Link>
+              <Link href="/settings" className="hover:text-foreground">
+                Settings
+              </Link>
             </nav>
           </div>
           <div className="flex items-center gap-3">

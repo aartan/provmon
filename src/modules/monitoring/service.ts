@@ -28,7 +28,6 @@ import {
   type CheckJobData,
   type CheckOutcome,
   INTERVAL_OPTIONS_MINUTES,
-  type IntervalMinutes,
   type MonitoringCondition,
 } from "@/modules/monitoring/types";
 
@@ -53,7 +52,7 @@ export interface AddMonitoringSubscriptionInput {
   url: string;
   targetPriceMinor?: number;
   condition: MonitoringCondition;
-  intervalMinutes: IntervalMinutes;
+  intervalMinutes: number;
 }
 
 /**
