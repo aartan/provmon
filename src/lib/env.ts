@@ -25,6 +25,10 @@ const envSchema = z.object({
   EMAIL_FROM: z.string().default(""),
   DEV_SMTP_HOST: z.string().default("localhost"),
   DEV_SMTP_PORT: z.coerce.number().int().positive().default(1025),
+  CASHCONVERTERS_API_URL: z
+    .string()
+    .url()
+    .default("https://www.cashconverters.co.uk/c3api"),
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace"])
     .default("info"),

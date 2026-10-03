@@ -31,6 +31,7 @@ export function runRetailerAdapterContractTests(input: AdapterContractInput): vo
       expect(adapter.currency).toMatch(/^[A-Z]{3}$/);
       expect(Number.isInteger(adapter.minCheckIntervalMs)).toBe(true);
       expect(adapter.minCheckIntervalMs).toBeGreaterThan(0);
+      expect(typeof adapter.treatNotFoundAsOutOfStock).toBe("boolean");
     });
 
     it("parses a valid product URL", () => {

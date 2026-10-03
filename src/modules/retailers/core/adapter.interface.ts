@@ -29,6 +29,13 @@ export interface RetailerAdapter {
   readonly minCheckIntervalMs: number;
   /** Primary ISO 4217 currency for this retailer. */
   readonly currency: string;
+  /**
+   * When true, a ProductNotFoundError from getProduct means the product
+   * currently is not listed (typical for marketplaces selling unique
+   * items) and the engine records OUT_OF_STOCK instead of an error. When
+   * false, not-found is a permanent failure.
+   */
+  readonly treatNotFoundAsOutOfStock: boolean;
 
   /**
    * Parse and validate a product URL for this retailer. Throws

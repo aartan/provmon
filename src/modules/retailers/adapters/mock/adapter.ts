@@ -50,6 +50,7 @@ export class MockRetailerAdapter implements RetailerAdapter {
   readonly supportedDomains = [MOCK_RETAILER_DOMAIN];
   readonly minCheckIntervalMs = 60_000;
   readonly currency = "GBP";
+  readonly treatNotFoundAsOutOfStock = false;
 
   constructor(readonly store: MockStore) {}
 

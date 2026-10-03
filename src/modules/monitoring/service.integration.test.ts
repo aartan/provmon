@@ -311,7 +311,6 @@ describe("mockRetailer", () => {
   it("is registered with the shared registry", () => {
     expect(mockRetailer.id).toBe("mock");
   });
-
   it("createSubscription is usable directly (repository level)", async () => {
     await resetTestState();
     const userId = await createTestUser();
@@ -332,5 +331,80 @@ describe("mockRetailer", () => {
       intervalMinutes: 60,
     });
     expect(subscription.id).toBeTruthy();
+  });
+});
+
+describe("marketplace not-found semantics (integration)", () => {
+  beforeEach(async () => {
+    await resetTestState();
+    mockRetailerStore.reset();
+  });
+
+  afterAll(async () => {
+    await resetTestState();
+  });
+
+  it("records OUT_OF_STOCK when an adapter with treatNotFoundAsOutOfStock throws ProductNotFoundError", async () => {
+    const { retailerRegistry } = await import("@/modules/retailers/core/retailer-registry");
+    const { ProductNotFoundError } = await import("@/modules/retailers/core/errors");
+
+    const testAdapter = {
+      id: "marketplace-test",
+      name: "Marketplace Test",
+      supportedDomains: ["marketplace-test.example"],
+      minCheckIntervalMs: 60_000,
+      currency: "GBP",
+      treatNotFoundAsOutOfStock: true,
+      parseProductUrl(url: string) {
+        return { retailerProductId: "gone", url };
+      },
+      async getProduct() {
+        throw new ProductNotFoundError("marketplace-test", "gone");
+      },
+    };
+    retailerRegistry.register(testAdapter);
+
+    const userId = await createTestUser("market@example.com");
+    const product = await db.product.create({
+      data: {
+        retailerId: "marketplace-test",
+        retailerProductId: "gone",
+        name: "One-off item",
+        url: "https://marketplace-test.example/shop/gone",
+        currency: "GBP",
+        currentPriceMinor: 5000,
+        currentAvailability: "IN_STOCK",
+      },
+    });
+    const subscription = await createSubscription({
+      userId,
+      productId: product.id,
+      condition: "BACK_IN_STOCK",
+      intervalMinutes: 15,
+    });
+
+    const outcome = await processCheckJob({ subscriptionId: subscription.id });
+
+    expect(outcome.success).toBe(true);
+    expect(outcome.current).toEqual({ availability: "OUT_OF_STOCK", priceMinor: null });
+
+    const updated = await db.product.findUnique({ where: { id: product.id } });
+    expect(updated?.currentAvailability).toBe("OUT_OF_STOCK");
+    // Name preserved from the stored product.
+    expect(updated?.name).toBe("One-off item");
+
+    const checks = await db.monitoringCheck.findMany({
+      where: { subscriptionId: subscription.id },
+    });
+    expect(checks).toHaveLength(1);
+    expect(checks[0].status).toBe("SUCCESS");
+    expect(checks[0].availability).toBe("OUT_OF_STOCK");
+
+    // Availability transition was observed.
+    const observations = await db.availabilityObservation.findMany({
+      where: { productId: product.id },
+    });
+    expect(observations).toHaveLength(1);
+    expect(observations[0].availability).toBe("OUT_OF_STOCK");
   });
 });

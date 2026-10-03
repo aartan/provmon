@@ -236,39 +236,40 @@ export async function processCheckJob(data: CheckJobData): Promise<CheckOutcome>
 
     const details = validated.data;
     await updateProductFromCheck(product.id, details);
-    await recordCheck({
-      subscriptionId: subscription.id,
-      productId: product.id,
-      status: "SUCCESS",
+    return completeCheck(subscription, previous, startedAt, {
       availability: details.availability,
       priceMinor: details.priceMinor ?? null,
-      durationMs: Date.now() - startedAt,
     });
-
-    const outcome: CheckOutcome = {
-      subscriptionId: subscription.id,
-      productId: product.id,
-      previous,
-      current: {
-        availability: details.availability,
-        priceMinor: details.priceMinor ?? null,
-      },
-      success: true,
-    };
-
-    // Notification evaluation must never fail the check itself.
-    try {
-      await handleCheckOutcome(subscription.id, outcome);
-    } catch (error) {
-      logger.error(
-        { component: "monitoring", subscriptionId: subscription.id, err: error },
-        "notification evaluation failed",
-      );
-    }
-
-    return outcome;
   } catch (error) {
     if (isRetailerError(error)) {
+      // Marketplaces selling unique items signal a sold product by
+      // removing it from their API. Treat that as a normal out-of-stock
+      // observation when the adapter declares those semantics.
+      if (
+        error.code === "PRODUCT_NOT_FOUND" &&
+        adapter.treatNotFoundAsOutOfStock
+      ) {
+        logger.info(
+          { component: "monitoring", subscriptionId: subscription.id, retailerId: adapter.id },
+          "product not found; recording out of stock",
+        );
+        await updateProductFromCheck(product.id, {
+          retailerId: product.retailerId,
+          retailerProductId: product.retailerProductId ?? undefined,
+          name: product.name,
+          url: product.url,
+          imageUrl: product.imageUrl ?? undefined,
+          currency: product.currency,
+          priceMinor: undefined,
+          availability: "OUT_OF_STOCK",
+          lastUpdated: new Date(),
+        });
+        return completeCheck(subscription, previous, startedAt, {
+          availability: "OUT_OF_STOCK",
+          priceMinor: null,
+        });
+      }
+
       logger.warn(
         {
           component: "monitoring",
@@ -320,3 +321,43 @@ export async function processCheckJob(data: CheckJobData): Promise<CheckOutcome>
 
 /** Re-exported for convenience of API callers. */
 export { UnsupportedRetailerError };
+
+/**
+ * Shared tail of a successful check: record it, run the notification
+ * rules (isolated so rule failures never fail the check), and return the
+ * outcome.
+ */
+async function completeCheck(
+  subscription: Awaited<ReturnType<typeof findSubscription>> & object,
+  previous: CheckOutcome["previous"],
+  startedAt: number,
+  current: CheckOutcome["current"],
+): Promise<CheckOutcome> {
+  await recordCheck({
+    subscriptionId: subscription.id,
+    productId: subscription.product.id,
+    status: "SUCCESS",
+    availability: current.availability,
+    priceMinor: current.priceMinor,
+    durationMs: Date.now() - startedAt,
+  });
+
+  const outcome: CheckOutcome = {
+    subscriptionId: subscription.id,
+    productId: subscription.product.id,
+    previous,
+    current,
+    success: true,
+  };
+
+  try {
+    await handleCheckOutcome(subscription.id, outcome);
+  } catch (error) {
+    logger.error(
+      { component: "monitoring", subscriptionId: subscription.id, err: error },
+      "notification evaluation failed",
+    );
+  }
+
+  return outcome;
+}
