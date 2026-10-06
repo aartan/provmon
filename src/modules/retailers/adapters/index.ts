@@ -1,4 +1,5 @@
 import { cashConvertersRetailer } from "@/modules/retailers/adapters/cashconverters";
+import { cexRetailer } from "@/modules/retailers/adapters/cex";
 import { mockRetailer } from "@/modules/retailers/adapters/mock";
 import { retailerRegistry } from "@/modules/retailers/core/retailer-registry";
 
@@ -11,7 +12,7 @@ import { retailerRegistry } from "@/modules/retailers/core/retailer-registry";
  * and UI are untouched.
  */
 export function registerBuiltInAdapters(): void {
-  for (const adapter of [mockRetailer, cashConvertersRetailer]) {
+  for (const adapter of [mockRetailer, cashConvertersRetailer, cexRetailer]) {
     if (!retailerRegistry.has(adapter.id)) {
       retailerRegistry.register(adapter);
     }

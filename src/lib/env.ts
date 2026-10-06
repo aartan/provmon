@@ -29,6 +29,16 @@ const envSchema = z.object({
     .string()
     .url()
     .default("https://www.cashconverters.co.uk/c3api"),
+  CEX_API_URL: z.string().url().default("https://search.webuy.io"),
+  // Public, read-only Algolia search credentials that uk.webuy.com embeds
+  // in every visitor's browser. They are not secrets: they grant search
+  // access only, the same permissions the retailer's own site exposes.
+  CEX_ALGOLIA_APPLICATION_ID: z.string().min(1).default("LNNFEEWZVA"),
+  CEX_ALGOLIA_API_KEY: z
+    .string()
+    .min(1)
+    .default("bf79f2b6699e60a18ae330a1248b452c"),
+  CEX_ALGOLIA_INDEX: z.string().min(1).default("prod_cex_uk"),
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace"])
     .default("info"),
