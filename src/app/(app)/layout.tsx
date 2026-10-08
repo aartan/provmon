@@ -1,16 +1,17 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import type { ReactNode } from "react";
+import { connection } from "next/server";
 
 import { logout } from "@/app/(auth)/actions";
 import { auth } from "@/auth";
 import { Button } from "@/components/ui/button";
 
-// The layout reads the session cookie, so it cannot prerender a static shell.
+// The session-driven part of the header streams in behind a Suspense
+// boundary; the prerendered shell must not read the session cookie.
 export const instant = false;
 
-export default async function AppLayout({ children }: { children: ReactNode }) {
-  const session = await auth();
-
+export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-svh flex-col">
       <header className="border-b">
@@ -34,19 +35,37 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
               </Link>
             </nav>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="hidden text-sm text-muted-foreground sm:inline">
-              {session?.user?.email}
-            </span>
-            <form action={logout}>
-              <Button variant="outline" size="sm" type="submit">
-                Sign out
-              </Button>
-            </form>
-          </div>
+          <Suspense
+            fallback={
+              <div className="h-9 w-32 animate-pulse rounded-md bg-muted" />
+            }
+          >
+            <SessionMenu />
+          </Suspense>
         </div>
       </header>
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">{children}</main>
+    </div>
+  );
+}
+
+async function SessionMenu() {
+  // Auth.js reads the session without going through a framework-tracked
+  // request API, so stop prerendering here: this component only renders
+  // at request time (its Suspense fallback fills the static shell).
+  await connection();
+  const session = await auth();
+
+  return (
+    <div className="flex items-center gap-3">
+      <span className="hidden text-sm text-muted-foreground sm:inline">
+        {session?.user?.email}
+      </span>
+      <form action={logout}>
+        <Button variant="outline" size="sm" type="submit">
+          Sign out
+        </Button>
+      </form>
     </div>
   );
 }

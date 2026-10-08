@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
+import { connection } from "next/server";
 
 import { auth } from "@/auth";
 import { listSubscriptionsForUser } from "@/modules/monitoring/repository";
@@ -8,6 +10,8 @@ export const metadata: Metadata = {
   title: "Monitored products",
 };
 
+// Session and database reads stream in behind a Suspense boundary; the
+// prerendered shell must not read the session cookie.
 export const instant = false;
 
 export interface ProductRow {
@@ -26,7 +30,26 @@ export interface ProductRow {
   status: "ACTIVE" | "PAUSED";
 }
 
-export default async function ProductsPage() {
+export default function ProductsPage() {
+  return (
+    <Suspense fallback={<ProductsFallback />}>
+      <ProductsContent />
+    </Suspense>
+  );
+}
+
+function ProductsFallback() {
+  return (
+    <div className="grid gap-6">
+      <div className="h-8 w-56 animate-pulse rounded-md bg-muted" />
+      <div className="h-64 animate-pulse rounded-xl bg-muted" />
+    </div>
+  );
+}
+
+async function ProductsContent() {
+  // Stop prerendering here; session and database reads run at request time.
+  await connection();
   const session = await auth();
   if (!session?.user) {
     return null;

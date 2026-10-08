@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
+import { connection } from "next/server";
 
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
@@ -13,10 +15,35 @@ export const metadata: Metadata = {
   title: "Dashboard",
 };
 
-// The page reads the session cookie, so it cannot prerender a static shell.
+// Session and database reads stream in behind a Suspense boundary; the
+// prerendered shell must not read the session cookie.
 export const instant = false;
 
-export default async function DashboardPage() {
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={<DashboardFallback />}>
+      <DashboardContent />
+    </Suspense>
+  );
+}
+
+function DashboardFallback() {
+  return (
+    <div className="grid gap-6">
+      <div className="h-8 w-44 animate-pulse rounded-md bg-muted" />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }, (_, i) => (
+          <div key={i} className="h-24 animate-pulse rounded-xl bg-muted" />
+        ))}
+      </div>
+      <div className="h-48 animate-pulse rounded-xl bg-muted" />
+    </div>
+  );
+}
+
+async function DashboardContent() {
+  // Stop prerendering here; session and database reads run at request time.
+  await connection();
   const session = await auth();
   if (!session?.user) {
     return null; // The proxy redirects, but stay safe.

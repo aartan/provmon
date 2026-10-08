@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
+import { connection } from "next/server";
 
 import { auth } from "@/auth";
 import { findSubscription, listRecentChecks } from "@/modules/monitoring/repository";
@@ -11,13 +13,34 @@ export const metadata: Metadata = {
   title: "Product",
 };
 
+// Session and database reads stream in behind a Suspense boundary; the
+// prerendered shell must not read the session cookie.
 export const instant = false;
 
 interface PageProps {
   params: Promise<{ id: string }>;
 }
 
-export default async function ProductDetailPage({ params }: PageProps) {
+export default function ProductDetailPage({ params }: PageProps) {
+  return (
+    <Suspense fallback={<ProductDetailFallback />}>
+      <ProductDetailContent params={params} />
+    </Suspense>
+  );
+}
+
+function ProductDetailFallback() {
+  return (
+    <div className="grid gap-6">
+      <div className="h-8 w-64 animate-pulse rounded-md bg-muted" />
+      <div className="h-64 animate-pulse rounded-xl bg-muted" />
+    </div>
+  );
+}
+
+async function ProductDetailContent({ params }: PageProps) {
+  // Stop prerendering here; session and database reads run at request time.
+  await connection();
   const { id } = await params;
   const session = await auth();
   if (!session?.user) {
