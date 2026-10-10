@@ -1,0 +1,62 @@
+# Production overlay: builds and runs the ProvMon web server and its
+# background monitoring worker in containers, reusing the
+# postgres/redis/mailpit services from docker-compose.yml.
+#
+#   podman-compose -f docker-compose.yml -f compose.prod.yml up -d --build
+#
+# Secrets (AUTH_SECRET, RESEND_API_KEY) are read from the host `.env`.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://provmon:provmon@postgres:5432/provmon
+      REDIS_URL: redis://redis:6379
+      AUTH_SECRET: ${AUTH_SECRET}
+      AUTH_TRUST_HOST: "true"
+      EMAIL_FROM: ${EMAIL_FROM:-ProvMon <onboarding@resend.dev>}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      # Fallback SMTP (Mailpit) is unused while RESEND_API_KEY is set
+      DEV_SMTP_HOST: mailpit
+      DEV_SMTP_PORT: "1025"
+      # The standalone worker service runs the BullMQ worker and sweep
+      WORKER_ENABLED: "false"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["npx", "tsx", "src/worker.ts"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://provmon:provmon@postgres:5432/provmon
+      REDIS_URL: redis://redis:6379
+      AUTH_SECRET: ${AUTH_SECRET}
+      AUTH_TRUST_HOST: "true"
+      EMAIL_FROM: ${EMAIL_FROM:-ProvMon <onboarding@resend.dev>}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      DEV_SMTP_HOST: mailpit
+      DEV_SMTP_PORT: "1025"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_started

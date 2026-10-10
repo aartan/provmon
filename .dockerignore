@@ -1,0 +1,27 @@
+# Local build artifacts and dependencies are installed inside the image
+node_modules
+.next
+src/generated
+
+# Secrets and local config never enter the image
+.env
+.env.local
+.env.*.local
+
+# Source control and docs
+.git
+.gitignore
+docs
+README.md
+AGENTS.md
+
+# Throwaway scripts and logs (tests stay in the build context: `next build`
+# type-checks them and they resolve the @test alias)
+*.tmp.mts
+*.log
+
+# The build files themselves
+Dockerfile
+.dockerignore
+docker-compose.yml
+compose.prod.yml
