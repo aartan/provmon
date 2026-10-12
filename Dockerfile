@@ -9,7 +9,7 @@ COPY prisma ./prisma
 # Placeholder values: real connection details are injected at runtime via
 # the compose environment. Only needed so module validation passes.
 ENV DATABASE_URL="postgresql://provmon:provmon@postgres:5432/provmon" \
-    REDIS_URL="redis://redis:6379" \
+    REDIS_URL="redis://:build-time-placeholder@redis:6379" \
     AUTH_SECRET="build-time-placeholder-secret-not-used-at-runtime"
 RUN npm ci
 
@@ -18,7 +18,7 @@ FROM docker.io/library/node:22-alpine AS build
 WORKDIR /app
 ENV NODE_ENV="production" \
     DATABASE_URL="postgresql://provmon:provmon@postgres:5432/provmon" \
-    REDIS_URL="redis://redis:6379" \
+    REDIS_URL="redis://:build-time-placeholder@redis:6379" \
     AUTH_SECRET="build-time-placeholder-secret-not-used-at-runtime"
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .

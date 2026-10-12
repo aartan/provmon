@@ -15,7 +15,7 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://provmon:provmon@postgres:5432/provmon
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       AUTH_SECRET: ${AUTH_SECRET}
       AUTH_TRUST_HOST: "true"
       EMAIL_FROM: ${EMAIL_FROM:-ProvMon <onboarding@resend.dev>}
@@ -45,7 +45,7 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://provmon:provmon@postgres:5432/provmon
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       AUTH_SECRET: ${AUTH_SECRET}
       AUTH_TRUST_HOST: "true"
       EMAIL_FROM: ${EMAIL_FROM:-ProvMon <onboarding@resend.dev>}

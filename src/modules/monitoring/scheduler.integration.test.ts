@@ -120,6 +120,43 @@ describe("monitoring scheduler (integration)", () => {
     }
   });
 
+  it("enqueues a new check while the previous completed job is retained", async () => {
+    const subscription = await dueSubscription();
+    const worker: Worker = createMonitoringWorker();
+
+    try {
+      await sweepDueSubscriptions();
+      await waitFor(async () => {
+        const checks = await db.monitoringCheck.count({
+          where: { subscriptionId: subscription.id, status: "SUCCESS" },
+        });
+        return checks === 1;
+      });
+
+      // The completed job is still in Redis because removeOnComplete keeps
+      // it for an hour. A second due check must still be enqueued.
+      const counts = await monitorQueue.getJobCounts("completed");
+      expect(counts.completed).toBeGreaterThanOrEqual(1);
+
+      await db.monitoringSubscription.update({
+        where: { id: subscription.id },
+        data: { nextCheckAt: new Date(Date.now() - 1_000) },
+      });
+
+      const second = await sweepDueSubscriptions();
+      expect(second.enqueued).toBe(1);
+
+      await waitFor(async () => {
+        const checks = await db.monitoringCheck.count({
+          where: { subscriptionId: subscription.id, status: "SUCCESS" },
+        });
+        return checks === 2;
+      });
+    } finally {
+      await worker.close();
+    }
+  });
+
   it("a paused subscription never reaches the queue", async () => {
     await dueSubscription({ status: "PAUSED" });
     const result = await sweepDueSubscriptions();

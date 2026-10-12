@@ -165,7 +165,7 @@ export function ProductsTable({ rows }: { rows: ProductRow[] }) {
           </p>
         </div>
       ) : (
-        <div className="rounded-lg border">
+        <div className="min-w-0 rounded-lg border">
           <Table>
             <TableHeader>
               <TableRow>

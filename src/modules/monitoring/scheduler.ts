@@ -13,8 +13,11 @@ export const SWEEP_INTERVAL_MS = 60_000;
 /**
  * Find subscriptions whose nextCheckAt is due and enqueue a check job for
  * each. Every subscription is claimed atomically before enqueueing, so
- * concurrent sweepers can never schedule the same check twice — and the
- * BullMQ jobId (the subscription id) deduplicates even a raced enqueue.
+ * concurrent sweepers can never schedule the same check twice.
+ *
+ * The jobId includes the claim time: reusing the subscription id would make
+ * BullMQ drop every check whose previous job is still retained by
+ * removeOnComplete/removeOnFail, delaying checks by up to an hour.
  */
 export async function sweepDueSubscriptions(
   limit: number = SWEEP_BATCH_SIZE,
@@ -30,7 +33,7 @@ export async function sweepDueSubscriptions(
     await monitorQueue.add(
       CHECK_JOB_NAME,
       { subscriptionId: subscription.id },
-      { jobId: subscription.id },
+      { jobId: `${subscription.id}-${Date.now()}` },
     );
     enqueued += 1;
   }
