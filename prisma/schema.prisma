@@ -23,6 +23,7 @@ enum MonitoringCondition {
 enum MonitoringStatus {
   ACTIVE
   PAUSED
+  ARCHIVED
 }
 
 enum CheckStatus {
@@ -35,12 +36,50 @@ enum NotificationType {
   BACK_IN_STOCK
   PRICE_DROP
   PRICE_DROP_SUBSEQUENT
+  HISTORICAL_ALERT
   TEST
 }
 
 enum NotificationStatus {
   SENT
   FAILED
+}
+
+enum PriceAlertType {
+  HISTORICAL_LOW
+  BELOW_90_DAY_AVERAGE
+  TWELVE_MONTH_LOW
+  TREND_REVERSAL
+  RETAILER_LOWEST
+}
+
+enum ObservationKind {
+  /// Baseline captured when a listing is first added from retailer data.
+  INITIAL
+  /// An immediate observation recorded because price/availability changed.
+  CHANGE
+  /// A periodic unchanged snapshot that extends the known duration of a state.
+  SNAPSHOT
+  /// A conservative copy of a legacy observation row.
+  BACKFILL
+}
+
+enum CatalogueDiscoveryMode {
+  INITIAL
+  REFRESH
+}
+
+enum CatalogueDiscoveryTrigger {
+  MANUAL
+  SCHEDULED
+}
+
+enum CatalogueDiscoveryStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
 }
 
 model User {
@@ -53,133 +92,301 @@ model User {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   subscriptions     MonitoringSubscription[]
+  inventoryItems    InventoryItem[]
   notifications     Notification[]
   notificationPrefs NotificationPreference?
 
   @@map("users")
 }
 
-model Product {
-  id                 String             @id @default(cuid())
-  retailerId         String             @map("retailer_id")
-  retailerProductId  String?            @map("retailer_product_id")
-  name               String
-  url                String
-  imageUrl           String?            @map("image_url")
-  currency           String
-  currentPriceMinor  Int?               @map("current_price_minor")
-  currentAvailability AvailabilityStatus @map("current_availability")
-  lastCheckedAt      DateTime?          @map("last_checked_at")
-  lastSuccessfulAt   DateTime?          @map("last_successful_at")
-  createdAt          DateTime           @default(now()) @map("created_at")
-  updatedAt          DateTime           @updatedAt @map("updated_at")
+/// The catalogue-level product. Shared across users and independent of any
+/// user's inventory or monitoring. A canonical product may exist with zero
+/// retailer listings.
+model CanonicalProduct {
+  id        String   @id @default(cuid())
+  name      String
+  brand     String?
+  model     String?
+  /// Normalised, valid GTIN-8/12/13/14 digits when known.
+  gtin      String?
+  mpn       String?
+  /// Matching keys: normalised brand and manufacturer part number.
+  brandKey  String?  @map("brand_key")
+  mpnKey    String?  @map("mpn_key")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  subscriptions            MonitoringSubscription[]
-  priceObservations        PriceObservation[]
-  availabilityObservations AvailabilityObservation[]
+  listings       RetailerListing[]
+  inventoryItems InventoryItem[]
+
+  @@unique([gtin])
+  @@unique([brandKey, mpnKey])
+  @@index([name])
+  @@map("canonical_products")
+}
+
+/// A retailer-specific listing belonging to a canonical product. Listings
+/// are shared catalogue data and are never hard-deleted while history
+/// references them.
+model RetailerListing {
+  id                        String             @id @default(cuid())
+  canonicalProductId        String             @map("canonical_product_id")
+  retailerId                String             @map("retailer_id")
+  retailerProductId         String?            @map("retailer_product_id")
+  sku                       String?
+  /// Normalised, valid GTIN when the adapter supplies one.
+  gtin                      String?
+  mpn                       String?
+  brand                     String?
+  model                     String?
+  /// Retailer-side category label, e.g. "Laptops - Windows".
+  category                  String?
+  name                      String
+  url                       String
+  imageUrl                  String?            @map("image_url")
+  currency                  String
+  currentPriceMinor         Int?               @map("current_price_minor")
+  currentOriginalPriceMinor Int?               @map("current_original_price_minor")
+  currentDiscountPct        Int?               @map("current_discount_pct")
+  currentAvailability       AvailabilityStatus @map("current_availability")
+  lastCheckedAt             DateTime?          @map("last_checked_at")
+  lastSuccessfulAt          DateTime?          @map("last_successful_at")
+  /// Temporary lease held while a worker checks this shared listing.
+  checkLeaseUntil           DateTime?          @map("check_lease_until")
+  /// Next scheduled check driven by inventory historical alert rules.
+  nextAlertCheckAt          DateTime?          @map("next_alert_check_at")
+  lastSeenAt                DateTime?          @map("last_seen_at")
+  /// When this listing was first observed through retailer-wide discovery.
+  /// Null for listings added from a user-supplied product URL.
+  catalogueDiscoveredAt     DateTime?          @map("catalogue_discovered_at")
+  /// Last sighting in a catalogue discovery page, independent of price checks.
+  lastCatalogueSeenAt       DateTime?          @map("last_catalogue_seen_at")
+  delistedAt                DateTime?          @map("delisted_at")
+  createdAt                 DateTime           @default(now()) @map("created_at")
+  updatedAt                 DateTime           @updatedAt @map("updated_at")
+
+  canonicalProduct CanonicalProduct         @relation(fields: [canonicalProductId], references: [id], onDelete: Restrict)
+  subscriptions    MonitoringSubscription[]
+  checks           MonitoringCheck[]
+  observations     ListingObservation[]
 
   @@unique([retailerId, retailerProductId])
-  @@map("products")
+  @@index([canonicalProductId, currency])
+  @@index([retailerId, name])
+  @@index([retailerId, lastCheckedAt])
+  @@index([retailerId, category])
+  @@index([retailerId, brand])
+  @@index([retailerId, currentPriceMinor])
+  @@index([retailerId, currentAvailability])
+  @@index([retailerId, currentDiscountPct])
+  @@index([retailerId, catalogueDiscoveredAt])
+  @@index([retailerId, lastCatalogueSeenAt])
+  @@index([nextAlertCheckAt])
+  @@map("retailer_listings")
+}
+
+/// Global configuration for retailer-wide catalogue discovery. Keyed by the
+/// stable adapter id; no foreign key because retailers live in the adapter
+/// registry, not the database.
+model RetailerCatalogue {
+  retailerId          String    @id @map("retailer_id")
+  discoveryEnabled    Boolean   @default(false) @map("discovery_enabled")
+  refreshIntervalHours Int      @default(24) @map("refresh_interval_hours")
+  nextRefreshAt       DateTime? @map("next_refresh_at")
+  lastSuccessfulRunAt DateTime? @map("last_successful_run_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  runs CatalogueDiscoveryRun[]
+
+  @@map("retailer_catalogues")
+}
+
+/// One resumable retailer-wide discovery/refresh attempt. The opaque cursor
+/// is owned by the adapter and persisted after every imported page so a
+/// crashed worker can continue without restarting the whole scan.
+model CatalogueDiscoveryRun {
+  id                 String                   @id @default(cuid())
+  retailerId         String                   @map("retailer_id")
+  mode               CatalogueDiscoveryMode
+  trigger            CatalogueDiscoveryTrigger
+  status             CatalogueDiscoveryStatus @default(QUEUED)
+  /// Adapter-owned continuation token for the next page.
+  cursor             Json?
+  /// Optimistic concurrency token; only one step may advance a revision.
+  revision           Int                      @default(0)
+  totalEstimate      Int?                     @map("total_estimate")
+  pagesProcessed     Int                      @default(0) @map("pages_processed")
+  itemsSeen          Int                      @default(0) @map("items_seen")
+  itemsCreated       Int                      @default(0) @map("items_created")
+  itemsUpdated       Int                      @default(0) @map("items_updated")
+  itemsUnchanged     Int                      @default(0) @map("items_unchanged")
+  itemsDelisted      Int                      @default(0) @map("items_delisted")
+  priceChanges       Int                      @default(0) @map("price_changes")
+  error              String?
+  startedAt          DateTime?                @map("started_at")
+  finishedAt         DateTime?                @map("finished_at")
+  heartbeatAt        DateTime?                @map("heartbeat_at")
+  createdAt          DateTime                 @default(now()) @map("created_at")
+  updatedAt          DateTime                 @updatedAt @map("updated_at")
+
+  retailerCatalogue RetailerCatalogue @relation(fields: [retailerId], references: [retailerId], onDelete: Cascade)
+
+  @@index([retailerId, status, createdAt])
+  @@index([status, heartbeatAt])
+  @@map("catalogue_discovery_runs")
+}
+
+/// A user's saved catalogue product. Exists independently of monitoring:
+/// an inventory item may have zero subscriptions, and deleting a
+/// subscription never deletes the inventory item or its history.
+model InventoryItem {
+  id                 String   @id @default(cuid())
+  userId             String   @map("user_id")
+  canonicalProductId String   @map("canonical_product_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  canonicalProduct CanonicalProduct @relation(fields: [canonicalProductId], references: [id], onDelete: Restrict)
+  alertRules       PriceAlertRule[]
+  notifications    Notification[]
+
+  @@unique([userId, canonicalProductId])
+  @@index([userId, createdAt])
+  @@map("inventory_items")
+}
+
+/// Per-inventory-item historical alert configuration. Unused until the
+/// historical alerts milestone; the table is part of the foundation so the
+/// ownership and retention model is settled from the start.
+model PriceAlertRule {
+  id              String         @id @default(cuid())
+  inventoryItemId String         @map("inventory_item_id")
+  type            PriceAlertType
+  /// ISO 4217 currency this rule evaluates. Rules never mix currencies.
+  currency        String
+  enabled         Boolean        @default(true)
+  thresholdPct    Int?           @map("threshold_pct")
+  state           Json?
+  lastTriggeredAt DateTime?      @map("last_triggered_at")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+
+  @@unique([inventoryItemId, type, currency])
+  @@map("price_alert_rules")
 }
 
 model MonitoringSubscription {
-  id                String            @id @default(cuid())
-  userId            String            @map("user_id")
-  productId         String            @map("product_id")
-  targetPriceMinor  Int?              @map("target_price_minor")
-  condition         MonitoringCondition
-  intervalMinutes   Int               @default(60) @map("interval_minutes")
-  status            MonitoringStatus  @default(ACTIVE)
-  nextCheckAt       DateTime?         @map("next_check_at")
-  notificationState Json?             @map("notification_state")
-  lastNotifiedAt    DateTime?         @map("last_notified_at")
-  createdAt         DateTime          @default(now()) @map("created_at")
-  updatedAt         DateTime          @updatedAt @map("updated_at")
+  id                      String              @id @default(cuid())
+  userId                  String              @map("user_id")
+  retailerListingId       String              @map("retailer_listing_id")
+  targetPriceMinor        Int?                @map("target_price_minor")
+  condition               MonitoringCondition
+  intervalMinutes         Int                 @default(15) @map("interval_minutes")
+  /// Unchanged-price snapshot cadence. 0 disables snapshots.
+  snapshotIntervalMinutes Int                 @default(1440) @map("snapshot_interval_minutes")
+  status                  MonitoringStatus    @default(ACTIVE)
+  nextCheckAt             DateTime?           @map("next_check_at")
+  archivedAt              DateTime?           @map("archived_at")
+  notificationState       Json?               @map("notification_state")
+  lastNotifiedAt          DateTime?           @map("last_notified_at")
+  createdAt               DateTime            @default(now()) @map("created_at")
+  updatedAt               DateTime            @updatedAt @map("updated_at")
 
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  product       Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
-  checks        MonitoringCheck[]
-  notifications Notification[]
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  retailerListing RetailerListing   @relation(fields: [retailerListingId], references: [id], onDelete: Restrict)
+  checks          MonitoringCheck[]
+  notifications   Notification[]
 
-  @@unique([userId, productId])
+  @@unique([userId, retailerListingId])
   @@index([status, nextCheckAt])
   @@map("monitoring_subscriptions")
 }
 
-model PriceObservation {
-  id         String   @id @default(cuid())
-  productId  String   @map("product_id")
-  priceMinor Int      @map("price_minor")
-  currency   String
-  observedAt DateTime @default(now()) @map("observed_at")
+/// Append-only observation history. One row is written per successful
+/// listing check when the price/availability changes, plus periodic
+/// unchanged snapshots. Rows are shared catalogue history and are never
+/// updated or deleted by the application.
+model ListingObservation {
+  id                 String              @id @default(cuid())
+  retailerListingId  String              @map("retailer_listing_id")
+  priceMinor         Int?                @map("price_minor")
+  /// Original price / RRP when the retailer exposed one at this observation.
+  originalPriceMinor Int?                @map("original_price_minor")
+  /// Retailer-provided or derived discount percentage for this observation.
+  discountPct        Int?                @map("discount_pct")
+  /// Null only for conservative BACKFILL rows that contain no price event.
+  currency           String?
+  /// Null only for conservative BACKFILL rows that contain no availability event.
+  availability       AvailabilityStatus?
+  kind               ObservationKind
+  observedAt         DateTime            @map("observed_at")
+  createdAt          DateTime            @default(now()) @map("created_at")
 
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  retailerListing RetailerListing @relation(fields: [retailerListingId], references: [id], onDelete: Restrict)
 
-  @@index([productId, observedAt])
-  @@map("price_observations")
-}
-
-model AvailabilityObservation {
-  id           String             @id @default(cuid())
-  productId    String             @map("product_id")
-  availability AvailabilityStatus
-  observedAt   DateTime           @default(now()) @map("observed_at")
-
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  @@index([productId, observedAt])
-  @@map("availability_observations")
+  @@index([retailerListingId, observedAt])
+  @@index([retailerListingId, kind, observedAt])
+  @@map("listing_observations")
 }
 
 model MonitoringCheck {
-  id             String             @id @default(cuid())
-  subscriptionId String             @map("subscription_id")
-  productId      String             @map("product_id")
-  status         CheckStatus
-  availability   AvailabilityStatus?
-  priceMinor     Int?               @map("price_minor")
-  errorCode      String?            @map("error_code")
-  errorMessage   String?            @map("error_message")
-  durationMs     Int?               @map("duration_ms")
-  startedAt      DateTime           @default(now()) @map("started_at")
-  finishedAt     DateTime?          @map("finished_at")
+  id                String              @id @default(cuid())
+  subscriptionId    String              @map("subscription_id")
+  retailerListingId String              @map("retailer_listing_id")
+  status            CheckStatus
+  availability      AvailabilityStatus?
+  priceMinor        Int?                @map("price_minor")
+  errorCode         String?             @map("error_code")
+  errorMessage      String?             @map("error_message")
+  durationMs        Int?                @map("duration_ms")
+  startedAt         DateTime            @default(now()) @map("started_at")
+  finishedAt        DateTime?           @map("finished_at")
 
-  subscription MonitoringSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  subscription    MonitoringSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  retailerListing RetailerListing        @relation(fields: [retailerListingId], references: [id], onDelete: Restrict)
 
   @@index([subscriptionId, startedAt])
+  @@index([retailerListingId, startedAt])
   @@map("monitoring_checks")
 }
 
 model Notification {
-  id                String             @id @default(cuid())
-  subscriptionId    String?            @map("subscription_id")
-  userId            String             @map("user_id")
+  id                String              @id @default(cuid())
+  subscriptionId    String?             @map("subscription_id")
+  inventoryItemId   String?             @map("inventory_item_id")
+  userId            String              @map("user_id")
   type              NotificationType
   subject           String
   body              String
   provider          String
-  providerMessageId String?            @map("provider_message_id")
+  providerMessageId String?             @map("provider_message_id")
   status            NotificationStatus
-  priceMinor        Int?               @map("price_minor")
+  priceMinor        Int?                @map("price_minor")
   availability      AvailabilityStatus?
-  sentAt            DateTime           @default(now()) @map("sent_at")
+  sentAt            DateTime            @default(now()) @map("sent_at")
 
-  subscription MonitoringSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
-  user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription  MonitoringSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  inventoryItem InventoryItem?          @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
+  user          User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, sentAt])
+  @@index([inventoryItemId, sentAt])
   @@map("notifications")
 }
 
 model NotificationPreference {
-  id                  String    @id @default(cuid())
-  userId              String    @unique @map("user_id")
-  emailEnabled        Boolean   @default(true) @map("email_enabled")
-  notifyBackInStock   Boolean   @default(true) @map("notify_back_in_stock")
-  notifyPriceDrop     Boolean   @default(true) @map("notify_price_drop")
-  subsequentDropPct   Int?      @map("subsequent_drop_pct")
-  createdAt           DateTime  @default(now()) @map("created_at")
-  updatedAt           DateTime  @updatedAt @map("updated_at")
+  id                String   @id @default(cuid())
+  userId            String   @unique @map("user_id")
+  emailEnabled      Boolean  @default(true) @map("email_enabled")
+  notifyBackInStock Boolean  @default(true) @map("notify_back_in_stock")
+  notifyPriceDrop   Boolean  @default(true) @map("notify_price_drop")
+  subsequentDropPct Int?     @map("subsequent_drop_pct")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
