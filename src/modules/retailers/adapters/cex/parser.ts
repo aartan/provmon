@@ -78,14 +78,23 @@ export function parseProductHit(hit: CeXProductHit): ProductDetails {
   const imageUrl = normalizeImageUrl(
     hit.imageUrls?.large ?? hit.imageUrls?.medium ?? hit.imageUrls?.small,
   );
+  // Many media box ids are EAN/UPC codes. Treat a purely numeric id as a
+  // candidate GTIN; the catalogue layer validates it before matching.
+  const gtin = /^\d{8,14}$/.test(hit.boxId) ? hit.boxId : undefined;
 
   return {
     retailerId: "cex",
     retailerProductId: hit.boxId,
+    gtin,
     name: hit.boxName,
     url: canonicalProductUrl(hit.boxId),
     imageUrl,
     currency: "GBP",
+    brand: hit.Manufacturer?.[0],
+    category: hit.categoryFriendlyName ?? undefined,
+    // CeX's "Model Number" is a model family identifier, not a unique
+    // manufacturer part number, so it is not used for canonical matching.
+    model: hit["Model Name"]?.[0] ?? hit["Model Number"]?.[0],
     // sellPrice is an integer amount in major units.
     priceMinor: parsePriceToMinor(hit.sellPrice) ?? undefined,
     availability: inStock ? "IN_STOCK" : "OUT_OF_STOCK",

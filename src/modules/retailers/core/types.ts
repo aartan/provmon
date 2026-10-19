@@ -26,12 +26,26 @@ export interface ProductDetails {
   retailerId: string;
   /** The retailer's own product identifier, when derivable from the URL. */
   retailerProductId?: string;
+  /** The retailer's SKU when it differs from the product identifier. */
+  sku?: string;
+  /** GTIN/EAN/UPC when the retailer exposes one; validated before matching. */
+  gtin?: string;
+  /** Manufacturer part number when unambiguously available. */
+  mpn?: string;
+  brand?: string;
+  model?: string;
+  /** Retailer-side category label, when the adapter exposes one. */
+  category?: string;
   name: string;
   /** Canonical product URL. */
   url: string;
   imageUrl?: string;
   currency: string;
   priceMinor?: number;
+  /** Original price / RRP in minor units when the retailer exposes one. */
+  originalPriceMinor?: number;
+  /** Retailer-provided discount percentage, when available. */
+  discountPct?: number;
   availability: AvailabilityStatus;
   lastUpdated: Date;
 }

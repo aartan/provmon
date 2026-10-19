@@ -1,5 +1,6 @@
 import { env } from "@/lib/env";
 import type { RetailerAdapter } from "@/modules/retailers/core/adapter.interface";
+import type { CatalogueDiscovery } from "@/modules/retailers/core/catalogue";
 import {
   ProductNotFoundError,
   RetailerBlockedError,
@@ -18,6 +19,7 @@ import {
   parseProductHit,
 } from "@/modules/retailers/adapters/cex/parser";
 import { searchResponseSchema } from "@/modules/retailers/adapters/cex/schemas";
+import { CeXDiscovery } from "@/modules/retailers/adapters/cex/discovery";
 
 export interface CeXAdapterOptions {
   /** Injectable for tests; defaults to the global fetch. */
@@ -60,6 +62,7 @@ export class CeXAdapter implements RetailerAdapter {
   readonly minCheckIntervalMs = 5 * 60_000;
   readonly currency = "GBP";
   readonly treatNotFoundAsOutOfStock = true;
+  readonly catalogue: CatalogueDiscovery;
 
   private readonly fetchImpl: typeof fetch;
   private readonly baseUrl: string;
@@ -76,6 +79,15 @@ export class CeXAdapter implements RetailerAdapter {
     this.apiKey = options.apiKey ?? env.CEX_ALGOLIA_API_KEY;
     this.indexName = options.indexName ?? env.CEX_ALGOLIA_INDEX;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.catalogue = new CeXDiscovery({
+      fetchImpl: this.fetchImpl,
+      baseUrl: this.baseUrl,
+      applicationId: this.applicationId,
+      apiKey: this.apiKey,
+      indexName: this.indexName,
+      timeoutMs: this.timeoutMs,
+      userAgent: USER_AGENT,
+    });
   }
 
   parseProductUrl(url: string): ParsedProductUrl {

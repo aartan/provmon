@@ -1,4 +1,8 @@
 import type { RetailerAdapter } from "@/modules/retailers/core/adapter.interface";
+import type {
+  CatalogueDiscovery,
+  CatalogueDiscoveryPage,
+} from "@/modules/retailers/core/catalogue";
 import {
   InvalidProductUrlError,
   ProductNotFoundError,
@@ -11,8 +15,10 @@ import {
 import type { ProductDetails } from "@/modules/retailers/core/types";
 import {
   MOCK_RETAILER_DOMAIN,
+  mockProductUrl,
   mockSkuFromUrl,
   type MockErrorState,
+  type MockProductState,
   type MockStore,
 } from "@/modules/retailers/adapters/mock/types";
 
@@ -51,8 +57,31 @@ export class MockRetailerAdapter implements RetailerAdapter {
   readonly minCheckIntervalMs = 60_000;
   readonly currency = "GBP";
   readonly treatNotFoundAsOutOfStock = false;
+  readonly catalogue: CatalogueDiscovery;
 
-  constructor(readonly store: MockStore) {}
+  constructor(readonly store: MockStore) {
+    this.catalogue = {
+      pageSize: 50,
+      fetchPage: async (cursor): Promise<CatalogueDiscoveryPage> => {
+        const entries = store.list();
+        const offset = cursor ? Number.parseInt(cursor, 10) : 0;
+        const start = Number.isFinite(offset) && offset > 0 ? offset : 0;
+        const page = entries.slice(start, start + 50);
+        const next = start + page.length;
+        return {
+          items: page.map((entry) =>
+            this.detailsFor(entry.sku, entry.state),
+          ),
+          nextCursor: next < entries.length ? String(next) : null,
+          totalEstimate: entries.length,
+          progress:
+            entries.length > 0
+              ? Math.min(1, next / entries.length)
+              : undefined,
+        };
+      },
+    };
+  }
 
   parseProductUrl(url: string) {
     const sku = mockSkuFromUrl(url);
@@ -75,14 +104,29 @@ export class MockRetailerAdapter implements RetailerAdapter {
       throw new ProductNotFoundError(this.id, sku);
     }
 
+    return this.detailsFor(sku, state, url);
+  }
+
+  private detailsFor(
+    sku: string,
+    state: MockProductState,
+    url: string = mockProductUrl(sku),
+  ): ProductDetails {
     return {
       retailerId: this.id,
       retailerProductId: sku,
+      sku: state.sku,
+      gtin: state.gtin,
+      mpn: state.mpn,
+      brand: state.brand,
+      model: state.model,
       name: state.name,
       url,
       imageUrl: state.imageUrl || undefined,
       currency: state.currency,
       priceMinor: state.priceMinor,
+      originalPriceMinor: state.originalPriceMinor,
+      discountPct: state.discountPct,
       availability: state.availability,
       lastUpdated: new Date(),
     };

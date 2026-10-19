@@ -2,6 +2,7 @@ import type {
   ParsedProductUrl,
   ProductDetails,
 } from "@/modules/retailers/core/types";
+import type { CatalogueDiscovery } from "@/modules/retailers/core/catalogue";
 
 /**
  * The contract every retailer integration implements.
@@ -36,6 +37,12 @@ export interface RetailerAdapter {
    * false, not-found is a permanent failure.
    */
   readonly treatNotFoundAsOutOfStock: boolean;
+
+  /**
+   * Optional retailer-wide catalogue enumeration. Adapters without this
+   * capability only support monitoring products added by URL.
+   */
+  readonly catalogue?: CatalogueDiscovery;
 
   /**
    * Parse and validate a product URL for this retailer. Throws

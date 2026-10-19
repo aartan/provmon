@@ -67,7 +67,10 @@ export function createMockStore(
       errors.clear();
     },
     list() {
-      return [...states.values()];
+      return [...states.entries()].map(([sku, state]) => ({
+        sku,
+        state: { ...state },
+      }));
     },
   };
 }

@@ -1,5 +1,6 @@
 import { env } from "@/lib/env";
 import type { RetailerAdapter } from "@/modules/retailers/core/adapter.interface";
+import type { CatalogueDiscovery } from "@/modules/retailers/core/catalogue";
 import {
   ProductNotFoundError,
   RetailerBlockedError,
@@ -15,6 +16,7 @@ import {
   parseProductListItem,
 } from "@/modules/retailers/adapters/cashconverters/parser";
 import { searchResultsSchema } from "@/modules/retailers/adapters/cashconverters/schemas";
+import { CashConvertersDiscovery } from "@/modules/retailers/adapters/cashconverters/discovery";
 
 export interface CashConvertersAdapterOptions {
   /** Injectable for tests; defaults to the global fetch. */
@@ -47,6 +49,7 @@ export class CashConvertersAdapter implements RetailerAdapter {
   readonly minCheckIntervalMs = 5 * 60_000;
   readonly currency = "GBP";
   readonly treatNotFoundAsOutOfStock = true;
+  readonly catalogue: CatalogueDiscovery;
 
   private readonly fetchImpl: typeof fetch;
   private readonly baseUrl: string;
@@ -56,6 +59,12 @@ export class CashConvertersAdapter implements RetailerAdapter {
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.baseUrl = options.baseUrl ?? env.CASHCONVERTERS_API_URL;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.catalogue = new CashConvertersDiscovery({
+      fetchImpl: this.fetchImpl,
+      baseUrl: this.baseUrl,
+      timeoutMs: this.timeoutMs,
+      userAgent: USER_AGENT,
+    });
   }
 
   parseProductUrl(url: string): ParsedProductUrl {

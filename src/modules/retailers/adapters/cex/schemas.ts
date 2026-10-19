@@ -33,10 +33,23 @@ export const productHitSchema = z.object({
   /** 1 when the product is no longer sold. */
   discontinued: z.number().default(0),
   imageUrls: imageUrlsSchema.nullable().optional(),
+  /** Descriptive attributes used for catalogue presentation. */
+  Manufacturer: z.array(z.string()).nullable().optional(),
+  "Model Name": z.array(z.string()).nullable().optional(),
+  "Model Number": z.array(z.string()).nullable().optional(),
+  categoryFriendlyName: z.string().min(1).nullable().optional(),
 });
 
 export const searchResultSchema = z.object({
   hits: z.array(productHitSchema),
+  /** Catalogue discovery metadata; absent from single-product responses. */
+  nbHits: z.number().int().nonnegative().optional(),
+  nbPages: z.number().int().nonnegative().optional(),
+  page: z.number().int().nonnegative().optional(),
+  hitsPerPage: z.number().int().positive().optional(),
+  facets: z
+    .record(z.string(), z.record(z.string(), z.number().int().nonnegative()))
+    .optional(),
 });
 
 export const searchResponseSchema = z.object({

@@ -37,6 +37,7 @@ export function parseProductListItem(
 ): ProductDetails {
   // Sp is the selling price; fall back to Rrp when Sp is missing.
   const priceSource = item.Sp ?? item.Rrp ?? null;
+  const originalPriceMinor = parsePriceToMinor(item.Rrp) ?? undefined;
   const imageUrl =
     item.AbsoluteImageUrl ??
     (item.ImageUrl ? `${CASHCONVERTERS_SITE_URL}${item.ImageUrl}` : undefined);
@@ -48,7 +49,10 @@ export function parseProductListItem(
     url: `${CASHCONVERTERS_SITE_URL}${item.Url}`,
     imageUrl: imageUrl || undefined,
     currency: "GBP",
+    brand: item.Brand ?? undefined,
+    category: item.Category ?? item.ProductList ?? undefined,
     priceMinor: parsePriceToMinor(priceSource) ?? undefined,
+    originalPriceMinor,
     availability: "IN_STOCK",
     lastUpdated: new Date(),
   };

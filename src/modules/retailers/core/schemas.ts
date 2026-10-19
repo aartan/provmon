@@ -19,6 +19,12 @@ export const parsedProductUrlSchema = z.object({
 export const productDetailsSchema = z.object({
   retailerId: z.string().min(1),
   retailerProductId: z.string().min(1).optional(),
+  sku: z.string().min(1).optional(),
+  gtin: z.string().min(1).optional(),
+  mpn: z.string().min(1).optional(),
+  brand: z.string().min(1).optional(),
+  model: z.string().min(1).optional(),
+  category: z.string().min(1).optional(),
   name: z.string().min(1),
   url: z.string().url(),
   imageUrl: z.union([z.string().url(), z.literal("")]).optional(),
@@ -26,6 +32,8 @@ export const productDetailsSchema = z.object({
     .string()
     .regex(/^[A-Z]{3}$/, "currency must be an ISO 4217 code"),
   priceMinor: z.number().int().nonnegative().optional(),
+  originalPriceMinor: z.number().int().nonnegative().optional(),
+  discountPct: z.number().int().min(0).max(100).optional(),
   availability: availabilityStatusSchema,
   lastUpdated: z.date(),
 });

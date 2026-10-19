@@ -12,6 +12,10 @@ export const productListItemSchema = z.object({
   Url: z.string(),
   Sp: z.string().nullable().optional(),
   Rrp: z.string().nullable().optional(),
+  Brand: z.string().nullable().optional(),
+  Category: z.string().nullable().optional(),
+  ProductList: z.string().nullable().optional(),
+  ItemType: z.string().nullable().optional(),
   AbsoluteImageUrl: z.string().nullable().optional(),
   ImageUrl: z.string().nullable().optional(),
 });

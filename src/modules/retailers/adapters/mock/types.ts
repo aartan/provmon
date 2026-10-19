@@ -11,7 +11,14 @@ export interface MockProductState {
   imageUrl?: string;
   currency: string;
   priceMinor?: number;
+  originalPriceMinor?: number;
+  discountPct?: number;
   availability: AvailabilityStatus;
+  sku?: string;
+  gtin?: string;
+  mpn?: string;
+  brand?: string;
+  model?: string;
 }
 
 export interface MockErrorState {
@@ -32,7 +39,8 @@ export interface MockStore {
   getError(sku: string): MockErrorState | undefined;
   delete(sku: string): void;
   clear(): void;
-  list(): MockProductState[];
+  /** Snapshot of every product currently in the mock catalogue. */
+  list(): Array<{ sku: string; state: MockProductState }>;
 }
 
 /** Default store with a reset() that restores the seeded fixtures. */
