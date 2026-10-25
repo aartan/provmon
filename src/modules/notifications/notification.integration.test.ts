@@ -3,7 +3,11 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { mockRetailerStore } from "@/modules/retailers/adapters/mock";
 import { mockProductUrl } from "@/modules/retailers/adapters/mock/types";
-import { addMonitoringSubscription, processCheckJob } from "@/modules/monitoring/service";
+import {
+  addMonitoringSubscription,
+  performListingCheck,
+  processCheckJob,
+} from "@/modules/monitoring/service";
 import {
   getNotificationPreferences,
   handleCheckOutcome,
@@ -240,5 +244,58 @@ describe("notification delivery (integration, SMTP/Mailpit)", () => {
       current: { availability: "IN_STOCK", priceMinor: 5000 },
     });
     expect(sentAgain).toBe(1);
+  });
+});
+
+// Resend rejects example.com recipients, so shared-listing notification
+// assertions are only meaningful against the local SMTP/Mailpit provider.
+const describeWithSmtp = process.env.RESEND_API_KEY ? describe.skip : describe;
+
+describeWithSmtp("shared listing notification isolation (SMTP/Mailpit)", () => {
+  beforeEach(async () => {
+    await resetTestState();
+    mockRetailerStore.reset();
+  });
+
+  afterAll(async () => {
+    await resetTestState();
+  });
+
+  it("notifies each user monitoring a shared listing independently and skips paused users", async () => {
+    const userA = await createTestUser("shared-notify-a@example.com");
+    const userB = await createTestUser("shared-notify-b@example.com");
+    const pausedUser = await createTestUser("shared-notify-paused@example.com");
+
+    const subscriptionA = await createPriceSubscription(userA, "price-drops", 20000);
+    const subscriptionB = await createPriceSubscription(userB, "price-drops", 20000);
+    const pausedSubscription = await createPriceSubscription(
+      pausedUser,
+      "price-drops",
+      20000,
+    );
+    expect(subscriptionA.retailerListingId).toBe(
+      subscriptionB.retailerListingId,
+    );
+
+    await db.monitoringSubscription.update({
+      where: { id: pausedSubscription.id },
+      data: { status: "PAUSED" },
+    });
+
+    const run = await performListingCheck(subscriptionA.retailerListingId, {
+      force: true,
+    });
+    expect(run.outcomes.size).toBe(2);
+
+    const notificationsA = await listNotificationsForUser(userA);
+    const notificationsB = await listNotificationsForUser(userB);
+    const pausedNotifications = await listNotificationsForUser(pausedUser);
+    expect(notificationsA).toHaveLength(1);
+    expect(notificationsB).toHaveLength(1);
+    expect(notificationsA[0].type).toBe("PRICE_DROP");
+    expect(notificationsB[0].type).toBe("PRICE_DROP");
+    expect(notificationsA[0].status).toBe("SENT");
+    expect(notificationsB[0].status).toBe("SENT");
+    expect(pausedNotifications).toHaveLength(0);
   });
 });

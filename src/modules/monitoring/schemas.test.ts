@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   intervalMinutesSchema,
   requiresTargetPrice,
+  snapshotIntervalMinutesSchema,
   subscriptionNotificationStateSchema,
 } from "@/modules/monitoring/schemas";
 
@@ -27,6 +28,26 @@ describe("intervalMinutesSchema", () => {
       expect(intervalMinutesSchema.safeParse(minutes).success, `minutes=${minutes}`).toBe(
         false,
       );
+    }
+  });
+});
+
+describe("snapshotIntervalMinutesSchema", () => {
+  it("accepts disabled, daily and arbitrary positive cadences", () => {
+    for (const minutes of [0, 360, 720, 1440, 10080, 525_600]) {
+      expect(snapshotIntervalMinutesSchema.safeParse(minutes).success).toBe(true);
+      expect(snapshotIntervalMinutesSchema.safeParse(String(minutes)).success).toBe(
+        true,
+      );
+    }
+  });
+
+  it("rejects negative, fractional and excessive cadences", () => {
+    for (const minutes of [-1, 1.5, 525_601]) {
+      expect(
+        snapshotIntervalMinutesSchema.safeParse(minutes).success,
+        `minutes=${minutes}`,
+      ).toBe(false);
     }
   });
 });

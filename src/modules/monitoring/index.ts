@@ -3,14 +3,14 @@
  */
 export * from "@/modules/monitoring/types";
 export * from "@/modules/monitoring/schemas";
-export { MonitoringServiceError, addMonitoringSubscription, processCheckJob, intervalOptionsForRetailer } from "@/modules/monitoring/service";
+export { MonitoringServiceError, addMonitoringSubscription, processCheckJob, processListingCheckJob, performListingCheck, intervalOptionsForRetailer } from "@/modules/monitoring/service";
 export {
+  archiveSubscription,
   createSubscription,
-  deleteSubscription,
   findSubscription,
   listSubscriptionsForUser,
   updateSubscription,
   listRecentChecks,
 } from "@/modules/monitoring/repository";
-export { sweepDueSubscriptions, ensureSweepRepeatJob, triggerSweepNow } from "@/modules/monitoring/scheduler";
+export { sweepDueSubscriptions, sweepDueAlertListings, sweepDueChecks, ensureSweepRepeatJob, triggerSweepNow } from "@/modules/monitoring/scheduler";
 export { createMonitoringWorker, startInProcessWorker } from "@/modules/monitoring/worker";

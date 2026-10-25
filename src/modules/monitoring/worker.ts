@@ -5,18 +5,18 @@ import { logger } from "@/lib/logger";
 import { MONITOR_QUEUE } from "@/lib/queue";
 import { redis } from "@/lib/redis";
 import { registerBuiltInAdapters } from "@/modules/retailers/adapters";
-import { ensureSweepRepeatJob, sweepDueSubscriptions, triggerSweepNow } from "@/modules/monitoring/scheduler";
-import { processCheckJob } from "@/modules/monitoring/service";
-import { CHECK_JOB_NAME, SWEEP_JOB_NAME } from "@/modules/monitoring/types";
+import { ensureSweepRepeatJob, sweepDueChecks, triggerSweepNow } from "@/modules/monitoring/scheduler";
+import { processListingCheckJob } from "@/modules/monitoring/service";
+import { CHECK_JOB_NAME, SWEEP_JOB_NAME, type CheckJobData } from "@/modules/monitoring/types";
 
 const log = logger.child({ component: "monitoring-worker" });
 
 async function processor(job: Job): Promise<unknown> {
   switch (job.name) {
     case SWEEP_JOB_NAME:
-      return sweepDueSubscriptions();
+      return sweepDueChecks();
     case CHECK_JOB_NAME:
-      return processCheckJob(job.data as { subscriptionId: string });
+      return processListingCheckJob(job.data as CheckJobData);
     default:
       throw new Error(`Unknown job name: ${job.name}`);
   }
@@ -31,6 +31,10 @@ export function createMonitoringWorker(): Worker {
   const worker = new Worker(MONITOR_QUEUE, processor, {
     connection: redis,
     concurrency: 5,
+    // A shared-listing job may fan out notifications to many subscribers.
+    // Keep the job lock long enough that a slow email batch is not treated
+    // as stalled and retried concurrently.
+    lockDuration: 120_000,
   });
 
   worker.on("failed", (job, error) => {

@@ -27,7 +27,7 @@ export interface ProductRow {
   targetPriceMinor: number | null;
   condition: "BACK_IN_STOCK" | "PRICE_DROP" | "BOTH";
   intervalMinutes: number;
-  status: "ACTIVE" | "PAUSED";
+  status: "ACTIVE" | "PAUSED" | "ARCHIVED";
 }
 
 export default function ProductsPage() {
@@ -56,7 +56,10 @@ async function ProductsContent() {
   }
 
   const subscriptions = await listSubscriptionsForUser(session.user.id);
-  const rows: ProductRow[] = subscriptions.map((subscription) => ({
+  const activeSubscriptions = subscriptions.filter(
+    (subscription) => subscription.status !== "ARCHIVED",
+  );
+  const rows: ProductRow[] = activeSubscriptions.map((subscription) => ({
     id: subscription.id,
     productName: subscription.product.name,
     productUrl: subscription.product.url,
@@ -77,8 +80,8 @@ async function ProductsContent() {
       <div>
         <h1 className="text-2xl font-semibold">Monitored products</h1>
         <p className="text-sm text-muted-foreground">
-          {subscriptions.length} product{subscriptions.length === 1 ? "" : "s"} being
-          monitored.
+          {activeSubscriptions.length} product
+          {activeSubscriptions.length === 1 ? "" : "s"} being monitored.
         </p>
       </div>
       <ProductsTable rows={rows} />

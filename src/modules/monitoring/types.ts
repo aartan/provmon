@@ -12,7 +12,7 @@ export const MONITORING_CONDITIONS = [
 ] as const;
 export type MonitoringCondition = (typeof MONITORING_CONDITIONS)[number];
 
-export const SUBSCRIPTION_STATUSES = ["ACTIVE", "PAUSED"] as const;
+export const SUBSCRIPTION_STATUSES = ["ACTIVE", "PAUSED", "ARCHIVED"] as const;
 export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 
 /** Selectable check intervals in minutes. */
@@ -50,8 +50,8 @@ export function defaultNotificationState(
 /** Result of a single check, shared with the rules engine. */
 export interface CheckOutcome {
   subscriptionId: string;
-  productId: string;
-  /** State before this check (from the product row). */
+  retailerListingId: string;
+  /** State before this check (from the retailer listing row). */
   previous: {
     availability: AvailabilityStatus;
     priceMinor: number | null;
@@ -67,6 +67,20 @@ export interface CheckOutcome {
 }
 
 export interface CheckJobData {
+  retailerListingId: string;
+  /**
+   * When the sweep queued this check (epoch ms). A job that starts after a
+   * newer check already completed reuses that result instead of fetching
+   * the retailer again.
+   */
+  enqueuedAt?: number;
+  /** Manual checks bypass shared-check reuse and always fetch. */
+  force?: boolean;
+  /** Manual checks may target a paused or otherwise inactive subscription. */
+  requestedBySubscriptionId?: string;
+}
+
+export interface SingleCheckJobData {
   subscriptionId: string;
 }
 

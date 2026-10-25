@@ -31,6 +31,11 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatMinor } from "@/lib/money";
 import type { MonitoringCondition } from "@/modules/monitoring/types";
+import {
+  DEFAULT_SNAPSHOT_INTERVAL_MINUTES,
+  SNAPSHOT_INTERVAL_OPTIONS_MINUTES,
+  formatSnapshotInterval,
+} from "@/modules/monitoring/snapshot-config";
 
 interface PreviewProduct {
   retailerProductId: string | null;
@@ -60,6 +65,9 @@ export function AddProductForm() {
   const [condition, setCondition] = useState<MonitoringCondition>("BACK_IN_STOCK");
   const [targetPrice, setTargetPrice] = useState("");
   const [intervalMinutes, setIntervalMinutes] = useState<string>("");
+  const [snapshotIntervalMinutes, setSnapshotIntervalMinutes] = useState<string>(
+    String(DEFAULT_SNAPSHOT_INTERVAL_MINUTES),
+  );
   const [saving, startSaving] = useTransition();
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -95,6 +103,7 @@ export function AddProductForm() {
           targetPrice,
           condition,
           intervalMinutes,
+          snapshotIntervalMinutes,
         }),
       });
       const data = (await response.json()) as {
@@ -211,7 +220,7 @@ export function AddProductForm() {
                 </div>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-3">
                 <div className="grid gap-2">
                   <Label htmlFor="targetPrice">
                     Target price {needsTarget ? "" : "(optional)"}
@@ -245,6 +254,27 @@ export function AddProductForm() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="snapshotInterval">History snapshots</Label>
+                  <Select
+                    value={snapshotIntervalMinutes}
+                    onValueChange={setSnapshotIntervalMinutes}
+                  >
+                    <SelectTrigger id="snapshotInterval">
+                      <SelectValue placeholder="Select cadence" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SNAPSHOT_INTERVAL_OPTIONS_MINUTES.map((minutes) => (
+                        <SelectItem key={minutes} value={String(minutes)}>
+                          {formatSnapshotInterval(minutes)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Records unchanged prices so trends keep a steady baseline.
+                  </p>
                 </div>
               </div>
             </div>

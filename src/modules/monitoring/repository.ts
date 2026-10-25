@@ -1,60 +1,151 @@
-
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import type { Prisma } from "@/generated/prisma/client";
-import type { MonitoringCondition, SubscriptionStatus } from "@/modules/monitoring/types";
+import { ensureInventoryItem } from "@/modules/catalogue/inventory.repository";
+import {
+  DEFAULT_SNAPSHOT_INTERVAL_MINUTES,
+} from "@/modules/monitoring/snapshot-config";
+import type {
+  MonitoringCondition,
+  SubscriptionStatus,
+} from "@/modules/monitoring/types";
 import { defaultNotificationState } from "@/modules/monitoring/types";
 import type { SubscriptionNotificationState } from "@/modules/monitoring/types";
 import { subscriptionNotificationStateSchema } from "@/modules/monitoring/schemas";
 
+const listingSummarySelect = {
+  id: true,
+  canonicalProductId: true,
+  retailerId: true,
+  retailerProductId: true,
+  sku: true,
+  gtin: true,
+  mpn: true,
+  brand: true,
+  model: true,
+  name: true,
+  url: true,
+  imageUrl: true,
+  currency: true,
+  currentPriceMinor: true,
+  currentOriginalPriceMinor: true,
+  currentDiscountPct: true,
+  currentAvailability: true,
+  lastCheckedAt: true,
+  lastSuccessfulAt: true,
+  lastSeenAt: true,
+} as const;
+
+type SubscriptionRow = Prisma.MonitoringSubscriptionGetPayload<{
+  include: { retailerListing: { select: typeof listingSummarySelect } };
+}>;
+
+export interface RetailerListingSummary {
+  id: string;
+  canonicalProductId: string;
+  retailerId: string;
+  retailerProductId: string | null;
+  sku: string | null;
+  gtin: string | null;
+  mpn: string | null;
+  brand: string | null;
+  model: string | null;
+  name: string;
+  url: string;
+  imageUrl: string | null;
+  currency: string;
+  currentPriceMinor: number | null;
+  currentOriginalPriceMinor: number | null;
+  currentDiscountPct: number | null;
+  currentAvailability: "IN_STOCK" | "OUT_OF_STOCK" | "PREORDER" | "UNKNOWN";
+  lastCheckedAt: Date | null;
+  lastSuccessfulAt: Date | null;
+  lastSeenAt: Date | null;
+}
+
 export interface SubscriptionWithProduct {
   id: string;
   userId: string;
-  productId: string;
+  retailerListingId: string;
   targetPriceMinor: number | null;
   condition: MonitoringCondition;
   intervalMinutes: number;
+  snapshotIntervalMinutes: number;
   status: SubscriptionStatus;
   nextCheckAt: Date | null;
+  archivedAt: Date | null;
   /** Untrusted JSON from the database; parse with the zod schema. */
   notificationState: Prisma.JsonValue;
   lastNotifiedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
-  product: {
-    id: string;
-    retailerId: string;
-    retailerProductId: string | null;
-    name: string;
-    url: string;
-    imageUrl: string | null;
-    currency: string;
-    currentPriceMinor: number | null;
-    currentAvailability: "IN_STOCK" | "OUT_OF_STOCK" | "PREORDER" | "UNKNOWN";
-    lastCheckedAt: Date | null;
+  retailerListing: RetailerListingSummary;
+  /**
+   * Backwards-compatible alias for `retailerListing`. Existing API clients
+   * and the current UI read `subscription.product`.
+   */
+  product: RetailerListingSummary;
+}
+
+function withListingAlias(row: SubscriptionRow): SubscriptionWithProduct {
+  return {
+    ...row,
+    retailerListing: row.retailerListing,
+    product: row.retailerListing,
   };
 }
 
 export interface CreateSubscriptionInput {
   userId: string;
-  productId: string;
+  retailerListingId: string;
   targetPriceMinor?: number;
   condition: MonitoringCondition;
   intervalMinutes: number;
+  /** Defaults to SNAPSHOT_INTERVAL_MINUTES or daily. 0 disables snapshots. */
+  snapshotIntervalMinutes?: number;
   /** Availability observed at subscription time — seeds the dedup state. */
   initialAvailability?: "IN_STOCK" | "OUT_OF_STOCK" | "PREORDER" | "UNKNOWN";
+}
+
+/**
+ * Resolve the deployment-wide snapshot cadence. Invalid values fall back to
+ * the safe daily default rather than failing subscription creation.
+ */
+function defaultSnapshotIntervalMinutes(): number {
+  const raw = process.env.SNAPSHOT_INTERVAL_MINUTES;
+  if (!raw) {
+    return DEFAULT_SNAPSHOT_INTERVAL_MINUTES;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isInteger(parsed) && parsed >= 0
+    ? parsed
+    : DEFAULT_SNAPSHOT_INTERVAL_MINUTES;
 }
 
 export async function createSubscription(
   input: CreateSubscriptionInput,
 ): Promise<SubscriptionWithProduct> {
-  return db.monitoringSubscription.create({
+  const listing = await db.retailerListing.findUnique({
+    where: { id: input.retailerListingId },
+    select: { canonicalProductId: true },
+  });
+  if (!listing) {
+    throw new Error(`Retailer listing ${input.retailerListingId} not found`);
+  }
+
+  // Monitoring implies the product is in the user's inventory, but the
+  // inventory item exists independently from this subscription.
+  await ensureInventoryItem(input.userId, listing.canonicalProductId);
+
+  const row = await db.monitoringSubscription.create({
     data: {
       userId: input.userId,
-      productId: input.productId,
+      retailerListingId: input.retailerListingId,
       targetPriceMinor: input.targetPriceMinor ?? null,
       condition: input.condition,
       intervalMinutes: input.intervalMinutes,
+      snapshotIntervalMinutes:
+        input.snapshotIntervalMinutes ?? defaultSnapshotIntervalMinutes(),
       status: "ACTIVE",
       // First check runs on the next sweep.
       nextCheckAt: new Date(),
@@ -63,72 +154,36 @@ export async function createSubscription(
       ) as unknown as Prisma.InputJsonValue,
     },
     include: {
-      product: {
-        select: {
-          id: true,
-          retailerId: true,
-          retailerProductId: true,
-          name: true,
-          url: true,
-          imageUrl: true,
-          currency: true,
-          currentPriceMinor: true,
-          currentAvailability: true,
-          lastCheckedAt: true,
-        },
-      },
+      retailerListing: { select: listingSummarySelect },
     },
   });
+  return withListingAlias(row);
 }
 
 export async function findSubscription(
   subscriptionId: string,
   userId?: string,
 ): Promise<SubscriptionWithProduct | null> {
-  return db.monitoringSubscription.findFirst({
+  const row = await db.monitoringSubscription.findFirst({
     where: { id: subscriptionId, ...(userId ? { userId } : {}) },
     include: {
-      product: {
-        select: {
-          id: true,
-          retailerId: true,
-          retailerProductId: true,
-          name: true,
-          url: true,
-          imageUrl: true,
-          currency: true,
-          currentPriceMinor: true,
-          currentAvailability: true,
-          lastCheckedAt: true,
-        },
-      },
+      retailerListing: { select: listingSummarySelect },
     },
   });
+  return row ? withListingAlias(row) : null;
 }
 
 export async function listSubscriptionsForUser(
   userId: string,
 ): Promise<SubscriptionWithProduct[]> {
-  return db.monitoringSubscription.findMany({
+  const rows = await db.monitoringSubscription.findMany({
     where: { userId },
     orderBy: { createdAt: "desc" },
     include: {
-      product: {
-        select: {
-          id: true,
-          retailerId: true,
-          retailerProductId: true,
-          name: true,
-          url: true,
-          imageUrl: true,
-          currency: true,
-          currentPriceMinor: true,
-          currentAvailability: true,
-          lastCheckedAt: true,
-        },
-      },
+      retailerListing: { select: listingSummarySelect },
     },
   });
+  return rows.map(withListingAlias);
 }
 
 export async function updateSubscription(
@@ -138,6 +193,7 @@ export async function updateSubscription(
     targetPriceMinor?: number | null;
     condition?: MonitoringCondition;
     intervalMinutes?: number;
+    snapshotIntervalMinutes?: number;
     status?: SubscriptionStatus;
   },
 ): Promise<SubscriptionWithProduct | null> {
@@ -148,62 +204,70 @@ export async function updateSubscription(
     return null;
   }
 
-  // Changing the interval resets the schedule so the new cadence applies
-  // from now rather than the previously computed next check.
-  const nextCheckAt =
-    data.intervalMinutes !== undefined && data.intervalMinutes !== existing.intervalMinutes
-      ? new Date()
-      : existing.nextCheckAt;
+  const nextStatus = data.status ?? existing.status;
 
-  return db.monitoringSubscription.update({
+  // Changing the interval resets the schedule so the new cadence applies
+  // from now rather than the previously computed next check. Resuming a
+  // paused or archived subscription also schedules a check immediately.
+  let nextCheckAt = existing.nextCheckAt;
+  if (nextStatus === "ARCHIVED") {
+    nextCheckAt = null;
+  } else if (nextStatus === "ACTIVE" && existing.status !== "ACTIVE") {
+    nextCheckAt = new Date();
+  } else if (
+    data.intervalMinutes !== undefined &&
+    data.intervalMinutes !== existing.intervalMinutes
+  ) {
+    nextCheckAt = new Date();
+  }
+
+  const archivedAt =
+    nextStatus === "ARCHIVED"
+      ? (existing.archivedAt ?? new Date())
+      : null;
+
+  const row = await db.monitoringSubscription.update({
     where: { id: subscriptionId },
     data: {
       targetPriceMinor: data.targetPriceMinor,
       condition: data.condition,
       intervalMinutes: data.intervalMinutes,
+      snapshotIntervalMinutes: data.snapshotIntervalMinutes,
       status: data.status,
       nextCheckAt,
+      archivedAt,
     },
     include: {
-      product: {
-        select: {
-          id: true,
-          retailerId: true,
-          retailerProductId: true,
-          name: true,
-          url: true,
-          imageUrl: true,
-          currency: true,
-          currentPriceMinor: true,
-          currentAvailability: true,
-          lastCheckedAt: true,
-        },
-      },
+      retailerListing: { select: listingSummarySelect },
     },
   });
+  return withListingAlias(row);
 }
 
-export async function deleteSubscription(
+/**
+ * Archive a subscription: stop future checks and notifications without
+ * deleting the subscription, its checks, or its notification history.
+ */
+export async function archiveSubscription(
   subscriptionId: string,
   userId: string,
-): Promise<boolean> {
-  const result = await db.monitoringSubscription.deleteMany({
-    where: { id: subscriptionId, userId },
-  });
-  return result.count === 1;
+): Promise<SubscriptionWithProduct | null> {
+  return updateSubscription(subscriptionId, userId, { status: "ARCHIVED" });
 }
 
 /**
  * Find active subscriptions whose nextCheckAt is due. The caller claims
  * each one via `claimDueSubscription` before enqueueing.
  */
-export async function findDueSubscriptions(limit: number): Promise<Array<{ id: string }>> {
+export async function findDueSubscriptions(
+  limit: number,
+): Promise<Array<{ id: string; retailerListingId: string }>> {
   return db.monitoringSubscription.findMany({
     where: {
       status: "ACTIVE",
       nextCheckAt: { lte: new Date() },
     },
-    select: { id: true },
+    select: { id: true, retailerListingId: true },
     take: limit,
     orderBy: { nextCheckAt: "asc" },
   });
@@ -213,7 +277,7 @@ export async function findDueSubscriptions(limit: number): Promise<Array<{ id: s
  * Atomically claim a due subscription: advances nextCheckAt by its
  * interval only if it was still due. Returns the claimed row (with
  * interval) or null when someone else claimed it first or it was
- * paused — this prevents duplicate concurrent checks.
+ * paused/archived — this prevents duplicate concurrent checks.
  */
 export async function claimDueSubscription(id: string): Promise<{
   intervalMinutes: number;
@@ -229,7 +293,9 @@ export async function claimDueSubscription(id: string): Promise<{
     return null;
   }
 
-  const nextCheckAt = new Date(Date.now() + subscription.intervalMinutes * 60_000);
+  const nextCheckAt = new Date(
+    Date.now() + subscription.intervalMinutes * 60_000,
+  );
   const updated = await db.monitoringSubscription.updateMany({
     where: {
       id,
@@ -283,7 +349,7 @@ export async function saveSubscriptionNotificationState(
 
 export interface RecordCheckInput {
   subscriptionId: string;
-  productId: string;
+  retailerListingId: string;
   status: "SUCCESS" | "ERROR";
   availability?: "IN_STOCK" | "OUT_OF_STOCK" | "PREORDER" | "UNKNOWN";
   priceMinor?: number | null;
@@ -296,7 +362,7 @@ export async function recordCheck(input: RecordCheckInput): Promise<void> {
   await db.monitoringCheck.create({
     data: {
       subscriptionId: input.subscriptionId,
-      productId: input.productId,
+      retailerListingId: input.retailerListingId,
       status: input.status,
       availability: input.availability ?? null,
       priceMinor: input.priceMinor ?? null,
@@ -312,17 +378,19 @@ export async function recordCheck(input: RecordCheckInput): Promise<void> {
 export async function listRecentChecks(
   subscriptionId: string,
   limit: number,
-): Promise<Array<{
-  id: string;
-  status: "SUCCESS" | "ERROR" | "SKIPPED";
-  availability: "IN_STOCK" | "OUT_OF_STOCK" | "PREORDER" | "UNKNOWN" | null;
-  priceMinor: number | null;
-  errorCode: string | null;
-  errorMessage: string | null;
-  durationMs: number | null;
-  startedAt: Date;
-  finishedAt: Date | null;
-}>> {
+): Promise<
+  Array<{
+    id: string;
+    status: "SUCCESS" | "ERROR" | "SKIPPED";
+    availability: "IN_STOCK" | "OUT_OF_STOCK" | "PREORDER" | "UNKNOWN" | null;
+    priceMinor: number | null;
+    errorCode: string | null;
+    errorMessage: string | null;
+    durationMs: number | null;
+    startedAt: Date;
+    finishedAt: Date | null;
+  }>
+> {
   return db.monitoringCheck.findMany({
     where: { subscriptionId },
     orderBy: { startedAt: "desc" },

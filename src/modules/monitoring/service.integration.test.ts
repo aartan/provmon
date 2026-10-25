@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { db } from "@/lib/db";
 import { mockRetailer, mockRetailerStore } from "@/modules/retailers/adapters/mock";
@@ -7,10 +7,11 @@ import { RetailerNetworkError } from "@/modules/retailers/core/errors";
 import {
   addMonitoringSubscription,
   MonitoringServiceError,
+  performListingCheck,
   processCheckJob,
 } from "@/modules/monitoring/service";
-import { createSubscription } from "@/modules/monitoring/repository";
-import { createTestUser, resetTestState } from "@test/helpers/integration";
+import { archiveSubscription, createSubscription } from "@/modules/monitoring/repository";
+import { createTestUser, createTestListing, resetTestState } from "@test/helpers/integration";
 
 describe("addMonitoringSubscription (integration)", () => {
   beforeEach(async () => {
@@ -22,7 +23,7 @@ describe("addMonitoringSubscription (integration)", () => {
     await resetTestState();
   });
 
-  it("creates a product and a subscription from a supported URL", async () => {
+  it("creates a retailer listing, canonical product, inventory item and subscription", async () => {
     const userId = await createTestUser();
     const subscription = await addMonitoringSubscription({
       userId,
@@ -31,18 +32,24 @@ describe("addMonitoringSubscription (integration)", () => {
       intervalMinutes: 15,
     });
 
-    expect(subscription.product.retailerId).toBe("mock");
-    expect(subscription.product.name).toContain("In Stock");
+    expect(subscription.retailerListing.retailerId).toBe("mock");
+    expect(subscription.retailerListing.name).toContain("In Stock");
     expect(subscription.status).toBe("ACTIVE");
 
-    const storedProduct = await db.product.findFirst({
+    const storedListing = await db.retailerListing.findFirst({
       where: { retailerId: "mock" },
     });
-    expect(storedProduct?.currentAvailability).toBe("IN_STOCK");
-    expect(storedProduct?.currentPriceMinor).toBe(29999);
+    expect(storedListing?.currentAvailability).toBe("IN_STOCK");
+    expect(storedListing?.currentPriceMinor).toBe(29999);
+
+    expect(await db.canonicalProduct.count()).toBe(1);
+    expect(await db.canonicalProduct.count({
+      where: { id: storedListing?.canonicalProductId },
+    })).toBe(1);
+    expect(await db.inventoryItem.count({ where: { userId } })).toBe(1);
   });
 
-  it("shares one product row across users monitoring the same URL", async () => {
+  it("shares one listing across users monitoring the same URL but keeps inventory user-scoped", async () => {
     const userA = await createTestUser("a@example.com");
     const userB = await createTestUser("b@example.com");
 
@@ -60,10 +67,23 @@ describe("addMonitoringSubscription (integration)", () => {
       intervalMinutes: 30,
     });
 
-    const productCount = await db.product.count();
+    const listingCount = await db.retailerListing.count();
+    const canonicalCount = await db.canonicalProduct.count();
     const subscriptionCount = await db.monitoringSubscription.count();
-    expect(productCount).toBe(1);
+    const inventoryA = await db.inventoryItem.findMany({
+      where: { userId: userA },
+    });
+    const inventoryB = await db.inventoryItem.findMany({
+      where: { userId: userB },
+    });
+    expect(listingCount).toBe(1);
+    expect(canonicalCount).toBe(1);
     expect(subscriptionCount).toBe(2);
+    expect(inventoryA).toHaveLength(1);
+    expect(inventoryB).toHaveLength(1);
+    expect(inventoryA[0].canonicalProductId).toBe(
+      inventoryB[0].canonicalProductId,
+    );
   });
 
   it("rejects a duplicate subscription for the same user and product", async () => {
@@ -144,6 +164,31 @@ describe("addMonitoringSubscription (integration)", () => {
       }),
     ).rejects.toThrow(/could not load the product/i);
   });
+
+  it("resumes an archived subscription when the same URL is added again", async () => {
+    const userId = await createTestUser("resume@example.com");
+    const subscription = await addMonitoringSubscription({
+      userId,
+      url: mockProductUrl("in-stock"),
+      condition: "BACK_IN_STOCK",
+      intervalMinutes: 15,
+    });
+
+    const archived = await archiveSubscription(subscription.id, userId);
+    expect(archived?.status).toBe("ARCHIVED");
+    expect(archived?.nextCheckAt).toBeNull();
+
+    const resumed = await addMonitoringSubscription({
+      userId,
+      url: mockProductUrl("in-stock"),
+      condition: "BACK_IN_STOCK",
+      intervalMinutes: 30,
+    });
+    expect(resumed.id).toBe(subscription.id);
+    expect(resumed.status).toBe("ACTIVE");
+    expect(resumed.intervalMinutes).toBe(30);
+    expect(resumed.archivedAt).toBeNull();
+  });
 });
 
 describe("processCheckJob (integration)", () => {
@@ -180,43 +225,127 @@ describe("processCheckJob (integration)", () => {
     expect(checks).toHaveLength(1);
     expect(checks[0].status).toBe("SUCCESS");
 
-    const product = await db.product.findUnique({
-      where: { id: subscription.productId },
+    const listing = await db.retailerListing.findUnique({
+      where: { id: subscription.retailerListingId },
     });
-    expect(product?.lastCheckedAt).not.toBeNull();
-    expect(product?.lastSuccessfulAt).not.toBeNull();
+    expect(listing?.lastCheckedAt).not.toBeNull();
+    expect(listing?.lastSuccessfulAt).not.toBeNull();
   });
 
-  it("records a price observation only when the price changes", async () => {
+  it("records a price change as a single observation", async () => {
     const subscription = await createInStockSubscription();
     await processCheckJob({ subscriptionId: subscription.id });
-    expect(await db.priceObservation.count()).toBe(0);
+
+    // The add flow recorded the initial state from real retailer data.
+    const initial = await db.listingObservation.findMany({
+      where: { retailerListingId: subscription.retailerListingId },
+    });
+    expect(initial).toHaveLength(1);
+    expect(initial[0].kind).toBe("INITIAL");
 
     mockRetailerStore.setPrice("in-stock", 25000);
     await processCheckJob({ subscriptionId: subscription.id });
-    expect(await db.priceObservation.count()).toBe(1);
+    const afterDrop = await db.listingObservation.findMany({
+      where: { retailerListingId: subscription.retailerListingId },
+      orderBy: { observedAt: "asc" },
+    });
+    expect(afterDrop).toHaveLength(2);
+    expect(afterDrop[1].kind).toBe("CHANGE");
+    expect(afterDrop[1].priceMinor).toBe(25000);
 
     await processCheckJob({ subscriptionId: subscription.id });
-    expect(await db.priceObservation.count()).toBe(1);
+    expect(
+      await db.listingObservation.count({
+        where: { retailerListingId: subscription.retailerListingId },
+      }),
+    ).toBe(2);
   });
 
   it("records an availability observation only on transitions", async () => {
     const subscription = await createInStockSubscription();
     await processCheckJob({ subscriptionId: subscription.id });
-    expect(await db.availabilityObservation.count()).toBe(0);
+    expect(
+      await db.listingObservation.count({
+        where: { retailerListingId: subscription.retailerListingId },
+      }),
+    ).toBe(1);
 
     mockRetailerStore.setAvailability("in-stock", "OUT_OF_STOCK");
     await processCheckJob({ subscriptionId: subscription.id });
-    expect(await db.availabilityObservation.count()).toBe(1);
+    expect(
+      await db.listingObservation.count({
+        where: {
+          retailerListingId: subscription.retailerListingId,
+          availability: "OUT_OF_STOCK",
+        },
+      }),
+    ).toBe(1);
 
     // Out of stock again: no new observation.
     await processCheckJob({ subscriptionId: subscription.id });
-    expect(await db.availabilityObservation.count()).toBe(1);
+    expect(
+      await db.listingObservation.count({
+        where: {
+          retailerListingId: subscription.retailerListingId,
+          availability: "OUT_OF_STOCK",
+        },
+      }),
+    ).toBe(1);
 
     // Back in stock: another transition.
     mockRetailerStore.setAvailability("in-stock", "IN_STOCK");
     await processCheckJob({ subscriptionId: subscription.id });
-    expect(await db.availabilityObservation.count()).toBe(2);
+    expect(
+      await db.listingObservation.count({
+        where: {
+          retailerListingId: subscription.retailerListingId,
+          availability: "IN_STOCK",
+        },
+      }),
+    ).toBe(2);
+  });
+
+  it("records an unchanged snapshot only after the listing cadence elapses", async () => {
+    const subscription = await createInStockSubscription();
+    await db.monitoringSubscription.update({
+      where: { id: subscription.id },
+      data: { snapshotIntervalMinutes: 15 },
+    });
+    await processCheckJob({ subscriptionId: subscription.id });
+
+    await db.listingObservation.updateMany({
+      where: { retailerListingId: subscription.retailerListingId },
+      data: { observedAt: new Date(Date.now() - 16 * 60_000) },
+    });
+
+    await processCheckJob({ subscriptionId: subscription.id });
+    const rows = await db.listingObservation.findMany({
+      where: { retailerListingId: subscription.retailerListingId },
+      orderBy: { observedAt: "asc" },
+    });
+    expect(rows).toHaveLength(2);
+    expect(rows[1].kind).toBe("SNAPSHOT");
+  });
+
+  it("does not record snapshots when the cadence is disabled", async () => {
+    const subscription = await createInStockSubscription();
+    await db.monitoringSubscription.update({
+      where: { id: subscription.id },
+      data: { snapshotIntervalMinutes: 0 },
+    });
+    await processCheckJob({ subscriptionId: subscription.id });
+
+    await db.listingObservation.updateMany({
+      where: { retailerListingId: subscription.retailerListingId },
+      data: { observedAt: new Date(Date.now() - 400 * 24 * 60 * 60_000) },
+    });
+
+    await processCheckJob({ subscriptionId: subscription.id });
+    expect(
+      await db.listingObservation.count({
+        where: { retailerListingId: subscription.retailerListingId },
+      }),
+    ).toBe(1);
   });
 
   it("reports the previous state in the outcome", async () => {
@@ -284,10 +413,10 @@ describe("processCheckJob (integration)", () => {
 
     expect(outcome.success).toBe(true);
     expect(outcome.current.availability).toBe("UNKNOWN");
-    const product = await db.product.findUnique({
-      where: { id: subscription.productId },
+    const listing = await db.retailerListing.findUnique({
+      where: { id: subscription.retailerListingId },
     });
-    expect(product?.currentAvailability).toBe("UNKNOWN");
+    expect(listing?.currentAvailability).toBe("UNKNOWN");
   });
 
   it("supports a manually created subscription (target price, combined condition)", async () => {
@@ -314,23 +443,19 @@ describe("mockRetailer", () => {
   it("createSubscription is usable directly (repository level)", async () => {
     await resetTestState();
     const userId = await createTestUser();
-    const product = await db.product.create({
-      data: {
-        retailerId: "mock",
-        retailerProductId: "direct",
-        name: "Direct product",
-        url: "https://mock-retailer.test/products/direct",
-        currency: "GBP",
-        currentAvailability: "IN_STOCK",
-      },
+    const { listing } = await createTestListing({
+      retailerProductId: "direct",
+      name: "Direct product",
+      url: "https://mock-retailer.test/products/direct",
     });
     const subscription = await createSubscription({
       userId,
-      productId: product.id,
+      retailerListingId: listing.id,
       condition: "BACK_IN_STOCK",
       intervalMinutes: 60,
     });
     expect(subscription.id).toBeTruthy();
+    expect(await db.inventoryItem.count({ where: { userId } })).toBe(1);
   });
 });
 
@@ -365,20 +490,17 @@ describe("marketplace not-found semantics (integration)", () => {
     retailerRegistry.register(testAdapter);
 
     const userId = await createTestUser("market@example.com");
-    const product = await db.product.create({
-      data: {
-        retailerId: "marketplace-test",
-        retailerProductId: "gone",
-        name: "One-off item",
-        url: "https://marketplace-test.example/shop/gone",
-        currency: "GBP",
-        currentPriceMinor: 5000,
-        currentAvailability: "IN_STOCK",
-      },
+    const { listing } = await createTestListing({
+      retailerId: "marketplace-test",
+      retailerProductId: "gone",
+      name: "One-off item",
+      url: "https://marketplace-test.example/shop/gone",
+      currentPriceMinor: 5000,
+      currentAvailability: "IN_STOCK",
     });
     const subscription = await createSubscription({
       userId,
-      productId: product.id,
+      retailerListingId: listing.id,
       condition: "BACK_IN_STOCK",
       intervalMinutes: 15,
     });
@@ -386,11 +508,17 @@ describe("marketplace not-found semantics (integration)", () => {
     const outcome = await processCheckJob({ subscriptionId: subscription.id });
 
     expect(outcome.success).toBe(true);
-    expect(outcome.current).toEqual({ availability: "OUT_OF_STOCK", priceMinor: null });
+    expect(outcome.current).toEqual({
+      availability: "OUT_OF_STOCK",
+      priceMinor: 5000,
+    });
 
-    const updated = await db.product.findUnique({ where: { id: product.id } });
+    const updated = await db.retailerListing.findUnique({
+      where: { id: listing.id },
+    });
     expect(updated?.currentAvailability).toBe("OUT_OF_STOCK");
-    // Name preserved from the stored product.
+    expect(updated?.delistedAt).not.toBeNull();
+    // Name preserved from the stored listing.
     expect(updated?.name).toBe("One-off item");
 
     const checks = await db.monitoringCheck.findMany({
@@ -400,11 +528,130 @@ describe("marketplace not-found semantics (integration)", () => {
     expect(checks[0].status).toBe("SUCCESS");
     expect(checks[0].availability).toBe("OUT_OF_STOCK");
 
-    // Availability transition was observed.
-    const observations = await db.availabilityObservation.findMany({
-      where: { productId: product.id },
+    // Availability transition was observed in the append-only history.
+    const observations = await db.listingObservation.findMany({
+      where: {
+        retailerListingId: listing.id,
+        availability: "OUT_OF_STOCK",
+      },
     });
     expect(observations).toHaveLength(1);
-    expect(observations[0].availability).toBe("OUT_OF_STOCK");
+    expect(observations[0].kind).toBe("CHANGE");
+  });
+});
+
+describe("shared listing checks (integration)", () => {
+  beforeEach(async () => {
+    await resetTestState();
+    mockRetailerStore.reset();
+  });
+
+  afterAll(async () => {
+    await resetTestState();
+  });
+
+  it("fetches a shared listing once and records a check for every active subscriber", async () => {
+    const userA = await createTestUser("shared-a@example.com");
+    const userB = await createTestUser("shared-b@example.com");
+    const subscriptionA = await addMonitoringSubscription({
+      userId: userA,
+      url: mockProductUrl("in-stock"),
+      condition: "BACK_IN_STOCK",
+      intervalMinutes: 15,
+    });
+    const subscriptionB = await addMonitoringSubscription({
+      userId: userB,
+      url: mockProductUrl("in-stock"),
+      condition: "BACK_IN_STOCK",
+      intervalMinutes: 60,
+    });
+    expect(subscriptionA.retailerListingId).toBe(
+      subscriptionB.retailerListingId,
+    );
+
+    const spy = vi.spyOn(mockRetailer, "getProduct");
+    mockRetailerStore.setPrice("in-stock", 25000);
+    try {
+      const run = await performListingCheck(
+        subscriptionA.retailerListingId,
+        { force: true },
+      );
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(run.outcomes.size).toBe(2);
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(
+      await db.monitoringCheck.count({
+        where: {
+          retailerListingId: subscriptionA.retailerListingId,
+          status: "SUCCESS",
+        },
+      }),
+    ).toBe(2);
+    expect(
+      await db.listingObservation.count({
+        where: {
+          retailerListingId: subscriptionA.retailerListingId,
+          kind: "CHANGE",
+        },
+      }),
+    ).toBe(1);
+  });
+
+  it("reuses a newer shared check instead of fetching again", async () => {
+    const userId = await createTestUser("shared-reuse@example.com");
+    const subscription = await addMonitoringSubscription({
+      userId,
+      url: mockProductUrl("in-stock"),
+      condition: "BACK_IN_STOCK",
+      intervalMinutes: 15,
+    });
+
+    const enqueuedAt = Date.now();
+    await performListingCheck(subscription.retailerListingId, { force: true });
+
+    const spy = vi.spyOn(mockRetailer, "getProduct");
+    try {
+      const reused = await performListingCheck(
+        subscription.retailerListingId,
+        { enqueuedAt },
+      );
+      expect(reused.success).toBe(true);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("serialises concurrent checks with the listing lease", async () => {
+    const userId = await createTestUser("shared-lease@example.com");
+    const subscription = await addMonitoringSubscription({
+      userId,
+      url: mockProductUrl("in-stock"),
+      condition: "BACK_IN_STOCK",
+      intervalMinutes: 15,
+    });
+
+    const original = mockRetailer.getProduct.bind(mockRetailer);
+    const spy = vi
+      .spyOn(mockRetailer, "getProduct")
+      .mockImplementation(async (url) => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        return original(url);
+      });
+
+    try {
+      const [first, second] = await Promise.all([
+        performListingCheck(subscription.retailerListingId, { force: true }),
+        performListingCheck(subscription.retailerListingId, { force: true }),
+      ]);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(first.success).toBe(true);
+      expect(second.success).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

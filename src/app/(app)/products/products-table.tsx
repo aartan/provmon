@@ -113,14 +113,14 @@ export function ProductsTable({ rows }: { rows: ProductRow[] }) {
     });
   }
 
-  async function remove(id: string, name: string) {
+  async function archive(id: string, name: string) {
     startTransition(async () => {
       const response = await fetch(`/api/subscriptions/${id}`, { method: "DELETE" });
       if (response.ok) {
         router.refresh();
-        toast.success(`Removed "${name}"`);
+        toast.success(`Monitoring archived for "${name}"`);
       } else {
-        toast.error("Could not delete the subscription");
+        toast.error("Could not archive monitoring");
       }
     });
   }
@@ -211,8 +211,10 @@ export function ProductsTable({ rows }: { rows: ProductRow[] }) {
                   <TableCell>
                     <div className="grid gap-1">
                       <AvailabilityBadge availability={row.availability} />
-                      {row.status === "PAUSED" && (
-                        <span className="text-xs text-muted-foreground">Paused</span>
+                      {row.status !== "ACTIVE" && (
+                        <span className="text-xs text-muted-foreground">
+                          {row.status === "ARCHIVED" ? "Archived" : "Paused"}
+                        </span>
                       )}
                     </div>
                   </TableCell>
@@ -236,23 +238,24 @@ export function ProductsTable({ rows }: { rows: ProductRow[] }) {
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button variant="outline" size="sm" disabled={pending}>
-                            Delete
+                            Archive
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
-                            <AlertDialogTitle>Stop monitoring this product?</AlertDialogTitle>
+                            <AlertDialogTitle>Archive monitoring?</AlertDialogTitle>
                             <AlertDialogDescription>
-                              “{row.productName}” and its history will be removed from
-                              your account. This cannot be undone.
+                              This stops future checks and email alerts for “
+                              {row.productName}”. The subscription, price history,
+                              and past notifications are kept.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                             <AlertDialogAction
-                              onClick={() => remove(row.id, row.productName)}
+                              onClick={() => archive(row.id, row.productName)}
                             >
-                              Delete
+                              Archive
                             </AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>

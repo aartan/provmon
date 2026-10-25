@@ -5,13 +5,18 @@ import { auth } from "@/auth";
 import { logger } from "@/lib/logger";
 import { decimalToMinor } from "@/lib/money";
 import {
-  deleteSubscription,
+  archiveSubscription,
   findSubscription,
   listRecentChecks,
   updateSubscription,
 } from "@/modules/monitoring/repository";
 import { intervalOptionsForRetailer } from "@/modules/monitoring/service";
-import { getProductHistory } from "@/modules/products/product.repository";
+import { snapshotIntervalMinutesSchema } from "@/modules/monitoring/schemas";
+import {
+  getListingAnalytics,
+  getProductIntelligence,
+} from "@/modules/analytics/analytics.repository";
+import { getListingHistory } from "@/modules/catalogue/catalogue.repository";
 import { listNotificationsForUser } from "@/modules/notifications/notification.service";
 import { monitorQueue } from "@/lib/queue";
 import { CHECK_JOB_NAME } from "@/modules/monitoring/types";
@@ -32,7 +37,8 @@ const updateSchema = z.object({
     }),
   condition: z.enum(["BACK_IN_STOCK", "PRICE_DROP", "BOTH"]).optional(),
   intervalMinutes: z.coerce.number().int().optional(),
-  status: z.enum(["ACTIVE", "PAUSED"]).optional(),
+  snapshotIntervalMinutes: snapshotIntervalMinutesSchema.optional(),
+  status: z.enum(["ACTIVE", "PAUSED", "ARCHIVED"]).optional(),
 });
 
 interface RouteContext {
@@ -60,20 +66,32 @@ export async function GET(_request: Request, context: RouteContext) {
     return result.error;
   }
 
-  const [{ priceObservations, availabilityObservations }, checks, notifications] =
-    await Promise.all([
-      getProductHistory(result.subscription.productId),
-      listRecentChecks(id, 50),
-      listNotificationsForUser(result.userId, 50).then((all) =>
-        all.filter((n) => n.subscriptionId === id),
-      ),
-    ]);
+  const [
+    { priceObservations, availabilityObservations },
+    checks,
+    notifications,
+    analytics,
+    productIntelligence,
+  ] = await Promise.all([
+    getListingHistory(result.subscription.retailerListingId),
+    listRecentChecks(id, 50),
+    listNotificationsForUser(result.userId, 50).then((all) =>
+      all.filter((n) => n.subscriptionId === id),
+    ),
+    getListingAnalytics(result.subscription.retailerListingId),
+    getProductIntelligence(
+      result.subscription.retailerListing.canonicalProductId,
+      { userId: result.userId },
+    ),
+  ]);
 
   return NextResponse.json({
     subscription: result.subscription,
     history: { priceObservations, availabilityObservations },
     checks,
     notifications,
+    analytics,
+    productIntelligence,
   });
 }
 
@@ -95,7 +113,8 @@ export async function PATCH(request: Request, context: RouteContext) {
     targetPriceMinor?: number | null;
     condition?: "BACK_IN_STOCK" | "PRICE_DROP" | "BOTH";
     intervalMinutes?: number;
-    status?: "ACTIVE" | "PAUSED";
+    snapshotIntervalMinutes?: number;
+    status?: "ACTIVE" | "PAUSED" | "ARCHIVED";
   } = {};
 
   if (body.targetPrice !== undefined) {
@@ -115,6 +134,9 @@ export async function PATCH(request: Request, context: RouteContext) {
       );
     }
     patch.intervalMinutes = body.intervalMinutes;
+  }
+  if (body.snapshotIntervalMinutes !== undefined) {
+    patch.snapshotIntervalMinutes = body.snapshotIntervalMinutes;
   }
   if (body.status !== undefined) {
     patch.status = body.status;
@@ -149,11 +171,11 @@ export async function DELETE(_request: Request, context: RouteContext) {
     return result.error;
   }
 
-  const deleted = await deleteSubscription(id, result.userId);
-  if (!deleted) {
+  const archived = await archiveSubscription(id, result.userId);
+  if (!archived) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, subscription: archived });
 }
 
 /** Trigger an immediate check outside the sweep cadence. */
@@ -167,8 +189,14 @@ export async function POST(_request: Request, context: RouteContext) {
   try {
     await monitorQueue.add(
       CHECK_JOB_NAME,
-      { subscriptionId: id },
-      { jobId: id },
+      {
+        retailerListingId: result.subscription.retailerListingId,
+        force: true,
+        requestedBySubscriptionId: id,
+      },
+      {
+        jobId: `${result.subscription.retailerListingId}-manual-${Date.now()}`,
+      },
     );
     return NextResponse.json({ ok: true });
   } catch (error) {

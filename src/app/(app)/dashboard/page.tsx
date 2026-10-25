@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { formatMinor } from "@/lib/money";
 import { AvailabilityBadge } from "@/components/availability-badge";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDistanceToNow } from "@/lib/time";
 
@@ -53,9 +54,9 @@ async function DashboardContent() {
   const [subscriptions, notifications, recentChecks, prefs, notificationCount] =
     await Promise.all([
       db.monitoringSubscription.findMany({
-        where: { userId },
+        where: { userId, status: { not: "ARCHIVED" } },
         include: {
-          product: {
+          retailerListing: {
             select: {
               name: true,
               url: true,
@@ -80,7 +81,7 @@ async function DashboardContent() {
         include: {
           subscription: {
             select: {
-              product: { select: { name: true, currency: true } },
+              retailerListing: { select: { name: true, currency: true } },
             },
           },
         },
@@ -90,29 +91,42 @@ async function DashboardContent() {
     ]);
 
   const inStock = subscriptions.filter(
-    (s) => s.product.currentAvailability === "IN_STOCK",
+    (s) => s.retailerListing.currentAvailability === "IN_STOCK",
   ).length;
   const meetingTarget = subscriptions.filter((s) => {
-    if (s.targetPriceMinor === null || s.product.currentPriceMinor === null) {
+    if (
+      s.targetPriceMinor === null ||
+      s.retailerListing.currentPriceMinor === null
+    ) {
       return false;
     }
     return (
-      s.product.currentAvailability === "IN_STOCK" &&
-      s.product.currentPriceMinor <= s.targetPriceMinor
+      s.retailerListing.currentAvailability === "IN_STOCK" &&
+      s.retailerListing.currentPriceMinor <= s.targetPriceMinor
     );
   }).length;
 
   const attention = subscriptions.filter(
-    (s) => s.product.currentAvailability === "OUT_OF_STOCK",
+    (s) => s.retailerListing.currentAvailability === "OUT_OF_STOCK",
   );
 
   return (
     <div className="grid gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">
-          Welcome back{session.user.name ? `, ${session.user.name}` : ""}.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Dashboard</h1>
+          <p className="text-sm text-muted-foreground">
+            Welcome back{session.user.name ? `, ${session.user.name}` : ""}.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild size="sm">
+            <Link href="/catalogue">Browse catalogue</Link>
+          </Button>
+          <Button asChild size="sm" variant="outline">
+            <Link href="/inventory/add">Add by URL</Link>
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -192,10 +206,10 @@ async function DashboardContent() {
                         className="flex items-center justify-between gap-3 rounded-md p-2 hover:bg-muted"
                       >
                         <span className="truncate text-sm font-medium">
-                          {subscription.product.name}
+                          {subscription.retailerListing.name}
                         </span>
                         <AvailabilityBadge
-                          availability={subscription.product.currentAvailability}
+                          availability={subscription.retailerListing.currentAvailability}
                         />
                       </Link>
                     </li>
@@ -218,7 +232,7 @@ async function DashboardContent() {
                     <li key={check.id} className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium">
-                          {check.subscription.product.name}
+                          {check.subscription.retailerListing.name}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {formatDistanceToNow(check.startedAt)} ago
@@ -230,7 +244,7 @@ async function DashboardContent() {
                           <span className="text-xs tabular-nums text-muted-foreground">
                             {formatMinor(
                               check.priceMinor,
-                              check.subscription.product.currency,
+                              check.subscription.retailerListing.currency,
                               "en-GB",
                             )}
                           </span>

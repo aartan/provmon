@@ -41,12 +41,19 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type {
+  ListingAnalyticsView,
+  ProductIntelligenceView,
+  WindowMetricsView,
+} from "@/modules/analytics/view";
 import { formatMinor, minorToDecimal } from "@/lib/money";
+import { formatSnapshotInterval } from "@/modules/monitoring/snapshot-config";
 import { formatDateTime, formatDistanceToNow } from "@/lib/time";
 
 export interface ProductDetailProps {
   subscription: {
     id: string;
+    retailerListingId: string;
     productName: string;
     productUrl: string;
     imageUrl: string | null;
@@ -58,7 +65,8 @@ export interface ProductDetailProps {
     targetPriceMinor: number | null;
     condition: "BACK_IN_STOCK" | "PRICE_DROP" | "BOTH";
     intervalMinutes: number;
-    status: "ACTIVE" | "PAUSED";
+    snapshotIntervalMinutes: number;
+    status: "ACTIVE" | "PAUSED" | "ARCHIVED";
   };
   priceObservations: Array<{ priceMinor: number; observedAt: string }>;
   availabilityObservations: Array<{
@@ -77,13 +85,48 @@ export interface ProductDetailProps {
   }>;
   notifications: Array<{
     id: string;
-    type: "BACK_IN_STOCK" | "PRICE_DROP" | "PRICE_DROP_SUBSEQUENT" | "TEST";
+    type:
+      | "BACK_IN_STOCK"
+      | "PRICE_DROP"
+      | "PRICE_DROP_SUBSEQUENT"
+      | "HISTORICAL_ALERT"
+      | "TEST";
     subject: string;
     status: "SENT" | "FAILED";
     priceMinor: number | null;
     availability: "IN_STOCK" | "OUT_OF_STOCK" | "PREORDER" | "UNKNOWN" | null;
     sentAt: string;
   }>;
+  analytics: ListingAnalyticsView | null;
+  productIntelligence: ProductIntelligenceView | null;
+}
+
+function formatPercent(value: number | null): string {
+  return value === null ? "—" : `${value.toFixed(1)}%`;
+}
+
+function formatDays(value: number | null): string {
+  return value === null ? "—" : `${value.toFixed(1)} days`;
+}
+
+function Metric({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+}) {
+  return (
+    <div className="rounded-lg border p-3">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className="mt-1 text-lg font-semibold tabular-nums">{value}</p>
+      {hint ? (
+        <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+      ) : null}
+    </div>
+  );
 }
 
 export function ProductDetail({
@@ -92,10 +135,26 @@ export function ProductDetail({
   availabilityObservations,
   checks,
   notifications,
+  analytics,
+  productIntelligence,
 }: ProductDetailProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [removing, setRemoving] = useState(false);
+  const [analyticsWindowDays, setAnalyticsWindowDays] = useState(90);
+
+  const selectedMetrics = useMemo<WindowMetricsView | null>(() => {
+    if (!analytics) {
+      return null;
+    }
+    return (
+      analytics.windows.find(
+        (window) => window.windowDays === analyticsWindowDays,
+      ) ??
+      analytics.windows[0] ??
+      null
+    );
+  }, [analytics, analyticsWindowDays]);
 
   const chartData = useMemo(() => {
     const points = priceObservations.map((observation) => ({
@@ -150,6 +209,17 @@ export function ProductDetail({
             <h1 className="text-2xl font-semibold">{subscription.productName}</h1>
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               <span className="capitalize">{subscription.retailerId}</span>
+              <Badge
+                variant={
+                  subscription.status === "ACTIVE" ? "secondary" : "outline"
+                }
+              >
+                {subscription.status === "ACTIVE"
+                  ? "Active"
+                  : subscription.status === "PAUSED"
+                    ? "Paused"
+                    : "Archived"}
+              </Badge>
               <span>·</span>
               <AvailabilityBadge availability={subscription.availability} />
               <span>·</span>
@@ -192,7 +262,7 @@ export function ProductDetail({
           </Button>
           <Button
             size="sm"
-            disabled={pending || subscription.status === "PAUSED"}
+            disabled={pending || subscription.status !== "ACTIVE"}
             onClick={() =>
               mutate(
                 `/api/subscriptions/${subscription.id}`,
@@ -203,47 +273,49 @@ export function ProductDetail({
           >
             Check now
           </Button>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="destructive" size="sm" disabled={pending || removing}>
-                Delete
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Stop monitoring this product?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This removes the subscription and its history from your account.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={async () => {
-                    setRemoving(true);
-                    const response = await fetch(
-                      `/api/subscriptions/${subscription.id}`,
-                      { method: "DELETE" },
-                    );
-                    if (response.ok) {
-                      toast.success("Subscription removed");
-                      router.push("/products");
-                      router.refresh();
-                    } else {
-                      toast.error("Could not delete the subscription");
+          {subscription.status !== "ARCHIVED" && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" size="sm" disabled={pending || removing}>
+                  Archive
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Archive monitoring?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This stops future checks and email alerts. Your inventory
+                    item, price history, and past notifications are kept.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={async () => {
+                      setRemoving(true);
+                      const response = await fetch(
+                        `/api/subscriptions/${subscription.id}`,
+                        { method: "DELETE" },
+                      );
+                      if (response.ok) {
+                        toast.success("Monitoring archived");
+                        router.refresh();
+                      } else {
+                        toast.error("Could not archive monitoring");
+                      }
                       setRemoving(false);
-                    }
-                  }}
-                >
-                  Delete
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+                    }}
+                  >
+                    Archive
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -294,12 +366,120 @@ export function ProductDetail({
             </div>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              History snapshots
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-xl font-semibold">
+              {formatSnapshotInterval(subscription.snapshotIntervalMinutes)}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle>Price intelligence</CardTitle>
+              <CardDescription>
+                {analytics
+                  ? `Time-weighted metrics in ${analytics.currency}. Snapshots extend durations; only real price changes count.`
+                  : "No price observations yet."}
+              </CardDescription>
+            </div>
+            {analytics && (
+              <div className="flex gap-1">
+                {analytics.windows.map((window) => (
+                  <Button
+                    key={window.windowDays}
+                    size="sm"
+                    variant={
+                      selectedMetrics?.windowDays === window.windowDays
+                        ? "default"
+                        : "outline"
+                    }
+                    onClick={() => setAnalyticsWindowDays(window.windowDays)}
+                  >
+                    {window.windowDays}d
+                  </Button>
+                ))}
+              </div>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {!analytics || !selectedMetrics ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              Price intelligence appears after the first successful check.
+            </p>
+          ) : !selectedMetrics.hasData ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              No observations in this window yet.
+            </p>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <Metric
+                label={`Lowest (${selectedMetrics.windowDays}d)`}
+                value={formatMinor(
+                  selectedMetrics.minPriceMinor,
+                  analytics.currency,
+                  "en-GB",
+                )}
+              />
+              <Metric
+                label={`Highest (${selectedMetrics.windowDays}d)`}
+                value={formatMinor(
+                  selectedMetrics.maxPriceMinor,
+                  analytics.currency,
+                  "en-GB",
+                )}
+              />
+              <Metric
+                label="Price percentile"
+                value={formatPercent(selectedMetrics.percentile)}
+                hint="0 = cheapest, 100 = most expensive"
+              />
+              <Metric
+                label="Volatility"
+                value={formatPercent(selectedMetrics.volatilityPct)}
+                hint="Time-weighted coefficient of variation"
+              />
+              <Metric
+                label="Time above current"
+                value={formatPercent(selectedMetrics.aboveCurrentPct)}
+              />
+              <Metric
+                label="Time below current"
+                value={formatPercent(selectedMetrics.belowCurrentPct)}
+              />
+              <Metric
+                label="Price changes"
+                value={String(selectedMetrics.priceChangeCount)}
+                hint="Repeated snapshots are not changes"
+              />
+              <Metric
+                label="Avg. days between changes"
+                value={formatDays(selectedMetrics.avgDaysBetweenChanges)}
+              />
+              <Metric
+                label="Sale frequency"
+                value={formatPercent(selectedMetrics.saleFrequencyPct)}
+                hint="Only time with recorded RRP data"
+              />
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Tabs defaultValue="price">
-        <TabsList>
+        <TabsList className="flex-wrap">
           <TabsTrigger value="price">Price history</TabsTrigger>
           <TabsTrigger value="availability">Availability</TabsTrigger>
+          <TabsTrigger value="retailers">Retailers</TabsTrigger>
           <TabsTrigger value="checks">Checks</TabsTrigger>
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
         </TabsList>
@@ -479,6 +659,179 @@ export function ProductDetail({
                     </li>
                   ))}
                 </ul>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="retailers">
+          <Card>
+            <CardHeader>
+              <CardTitle>Retailer comparison</CardTitle>
+              <CardDescription>
+                Per-currency comparison across listings for this product.
+                Best prices and historical lows are never averaged across
+                retailers.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {!productIntelligence ||
+              productIntelligence.byCurrency.length === 0 ? (
+                <p className="py-10 text-center text-sm text-muted-foreground">
+                  No retailer listings to compare yet.
+                </p>
+              ) : (
+                <div className="grid gap-8">
+                  {productIntelligence.byCurrency.map((currency) => {
+                    const currencyListings = productIntelligence.listings.filter(
+                      (listing) => listing.currency === currency.currency,
+                    );
+                    return (
+                      <div key={currency.currency} className="grid gap-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h3 className="text-sm font-semibold">
+                            {currency.currency}
+                          </h3>
+                          <p className="text-xs text-muted-foreground">
+                            {currency.listingCount} listing
+                            {currency.listingCount === 1 ? "" : "s"} ·{" "}
+                            {currency.inStockCount} in stock
+                            {currency.bestCurrent
+                              ? ` · best ${formatMinor(
+                                  currency.bestCurrent.priceMinor,
+                                  currency.currency,
+                                  "en-GB",
+                                )} at ${currency.bestCurrent.retailerId}`
+                              : ""}
+                          </p>
+                        </div>
+
+                        <div className="grid gap-2">
+                          {currencyListings.map((listing) => {
+                            const isCurrent =
+                              listing.id === subscription.retailerListingId;
+                            const lowWindow =
+                              listing.windows.find(
+                                (window) => window.windowDays === 90,
+                              ) ??
+                              listing.windows[0] ??
+                              null;
+                            return (
+                              <div
+                                key={listing.id}
+                                className="flex flex-wrap items-start justify-between gap-3 rounded-md border p-3"
+                              >
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="truncate text-sm font-medium">
+                                      {listing.name}
+                                    </span>
+                                    <span className="text-xs capitalize text-muted-foreground">
+                                      {listing.retailerId}
+                                    </span>
+                                    {isCurrent && (
+                                      <Badge variant="outline">
+                                        This listing
+                                      </Badge>
+                                    )}
+                                    {listing.bestForCurrency && (
+                                      <Badge>Best price</Badge>
+                                    )}
+                                  </div>
+                                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                    <AvailabilityBadge
+                                      availability={listing.currentAvailability}
+                                    />
+                                    {lowWindow?.hasData &&
+                                      lowWindow.minPriceMinor !== null && (
+                                        <span>
+                                          Low ({lowWindow.windowDays}d):{" "}
+                                          {formatMinor(
+                                            lowWindow.minPriceMinor,
+                                            listing.currency,
+                                            "en-GB",
+                                          )}
+                                        </span>
+                                      )}
+                                    {listing.lastCheckedAt && (
+                                      <span>
+                                        checked{" "}
+                                        {formatDistanceToNow(
+                                          listing.lastCheckedAt,
+                                        )}{" "}
+                                        ago
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <div className="text-right">
+                                    <p className="text-sm font-semibold tabular-nums">
+                                      {formatMinor(
+                                        listing.currentPriceMinor,
+                                        listing.currency,
+                                        "en-GB",
+                                      )}
+                                    </p>
+                                    {listing.currentOriginalPriceMinor !==
+                                      null &&
+                                      listing.currentPriceMinor !== null &&
+                                      listing.currentOriginalPriceMinor >
+                                        listing.currentPriceMinor && (
+                                        <p className="text-xs text-muted-foreground line-through">
+                                          {formatMinor(
+                                            listing.currentOriginalPriceMinor,
+                                            listing.currency,
+                                            "en-GB",
+                                          )}
+                                        </p>
+                                      )}
+                                    {listing.currentDiscountPct !== null &&
+                                      listing.currentDiscountPct > 0 && (
+                                        <p className="text-xs text-destructive">
+                                          {listing.currentDiscountPct}% off
+                                        </p>
+                                      )}
+                                  </div>
+                                  <Link
+                                    href={listing.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs underline underline-offset-4"
+                                  >
+                                    View
+                                  </Link>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {currency.lowestByWindow.some(
+                          (window) => window.priceMinor !== null,
+                        ) && (
+                          <p className="text-xs text-muted-foreground">
+                            Lowest observed:{" "}
+                            {currency.lowestByWindow
+                              .map(
+                                (window) =>
+                                  `${window.windowDays}d ${
+                                    window.priceMinor !== null
+                                      ? formatMinor(
+                                          window.priceMinor,
+                                          currency.currency,
+                                          "en-GB",
+                                        )
+                                      : "—"
+                                  }`,
+                              )
+                              .join(" · ")}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </CardContent>
           </Card>

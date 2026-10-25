@@ -28,8 +28,14 @@ const log = logger.child({ component: "notifications" });
  */
 function createNotificationRow(data: {
   subscriptionId: string | null;
+  inventoryItemId?: string | null;
   userId: string;
-  type: "BACK_IN_STOCK" | "PRICE_DROP" | "PRICE_DROP_SUBSEQUENT" | "TEST";
+  type:
+    | "BACK_IN_STOCK"
+    | "PRICE_DROP"
+    | "PRICE_DROP_SUBSEQUENT"
+    | "HISTORICAL_ALERT"
+    | "TEST";
   subject: string;
   body: string;
   provider: string;
@@ -42,6 +48,7 @@ function createNotificationRow(data: {
     return db.notification.create({
       data: {
         subscriptionId: data.subscriptionId,
+        inventoryItemId: data.inventoryItemId ?? null,
         userId: data.userId,
         type: data.type,
         subject: data.subject,
@@ -58,13 +65,14 @@ function createNotificationRow(data: {
 
   return db.$executeRaw`
     INSERT INTO "notifications" (
-      "id", "subscription_id", "user_id", "type", "subject", "body",
-      "provider", "provider_message_id", "status", "price_minor",
-      "availability", "sent_at"
+      "id", "subscription_id", "inventory_item_id", "user_id", "type",
+      "subject", "body", "provider", "provider_message_id", "status",
+      "price_minor", "availability", "sent_at"
     )
     VALUES (
       ${`n-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`},
       NULL,
+      ${data.inventoryItemId ?? null},
       ${data.userId},
       ${data.type}::"NotificationType",
       ${data.subject},
@@ -116,7 +124,7 @@ interface SubscriptionContext {
   condition: MonitoringCondition;
   targetPriceMinor: number | null;
   user: { email: string; name: string | null };
-  product: {
+  listing: {
     name: string;
     url: string;
     retailerId: string;
@@ -135,7 +143,7 @@ async function loadSubscriptionContext(
       condition: true,
       targetPriceMinor: true,
       user: { select: { email: true, name: true } },
-      product: {
+      retailerListing: {
         select: {
           name: true,
           url: true,
@@ -145,7 +153,11 @@ async function loadSubscriptionContext(
       },
     },
   });
-  return subscription as SubscriptionContext | null;
+  if (!subscription) {
+    return null;
+  }
+  const { retailerListing, ...rest } = subscription;
+  return { ...rest, listing: retailerListing };
 }
 
 function buildEmail(
@@ -153,16 +165,16 @@ function buildEmail(
   context: SubscriptionContext,
 ): { subject: string; text: string } {
   const price = event.priceMinor !== null
-    ? formatMinor(event.priceMinor, context.product.currency, "en-GB")
+    ? formatMinor(event.priceMinor, context.listing.currency, "en-GB")
     : null;
 
   switch (event.type) {
     case "BACK_IN_STOCK": {
-      const subject = `${context.product.name} is back in stock`;
+      const subject = `${context.listing.name} is back in stock`;
       const text = [
-        `${context.product.name} is back in stock.`,
+        `${context.listing.name} is back in stock.`,
         price ? `Current price: ${price}` : null,
-        `View the product: ${context.product.url}`,
+        `View the product: ${context.listing.url}`,
       ]
         .filter(Boolean)
         .join("\n\n");
@@ -171,14 +183,14 @@ function buildEmail(
     case "PRICE_DROP":
     case "PRICE_DROP_SUBSEQUENT": {
       const target = context.targetPriceMinor !== null
-        ? formatMinor(context.targetPriceMinor, context.product.currency, "en-GB")
+        ? formatMinor(context.targetPriceMinor, context.listing.currency, "en-GB")
         : null;
       const subject = event.type === "PRICE_DROP"
-        ? `Price drop: ${context.product.name}`
-        : `Price dropped again: ${context.product.name}`;
+        ? `Price drop: ${context.listing.name}`
+        : `Price dropped again: ${context.listing.name}`;
       const text = [
-        `${context.product.name} is now ${price}${target ? ` — at or below your target of ${target}` : ""}.`,
-        `View the product: ${context.product.url}`,
+        `${context.listing.name} is now ${price}${target ? ` — at or below your target of ${target}` : ""}.`,
+        `View the product: ${context.listing.url}`,
       ].join("\n\n");
       return { subject, text };
     }
@@ -343,10 +355,92 @@ export async function sendTestEmail(userId: string): Promise<{
   }
 }
 
+export type HistoricalAlertDelivery = "sent" | "skipped" | "failed";
+
+/**
+ * Deliver a historical price alert for an inventory item.
+ *
+ * Historical alerts are user-specific and respect the existing email and
+ * price-alert preferences. A skipped delivery (preference off) still lets the
+ * caller advance dedup state so re-enabling alerts does not replay old news.
+ */
+export async function sendHistoricalAlertNotification(input: {
+  userId: string;
+  inventoryItemId: string;
+  subject: string;
+  text: string;
+  priceMinor: number | null;
+  availability: AvailabilityStatus | null;
+}): Promise<HistoricalAlertDelivery> {
+  const prefs = await getNotificationPreferences(input.userId);
+  if (!prefs.emailEnabled || !prefs.notifyPriceDrop) {
+    return "skipped";
+  }
+
+  const user = await db.user.findUnique({
+    where: { id: input.userId },
+    select: { email: true },
+  });
+  if (!user) {
+    return "skipped";
+  }
+
+  const provider = getActiveNotificationProvider();
+  try {
+    const result = await provider.send({
+      to: user.email,
+      subject: input.subject,
+      text: input.text,
+    });
+    await createNotificationRow({
+      subscriptionId: null,
+      inventoryItemId: input.inventoryItemId,
+      userId: input.userId,
+      type: "HISTORICAL_ALERT",
+      subject: input.subject,
+      body: input.text,
+      provider: provider.id,
+      providerMessageId: result.providerMessageId,
+      status: "SENT",
+      priceMinor: input.priceMinor,
+      availability: input.availability,
+    });
+    return "sent";
+  } catch (error) {
+    await createNotificationRow({
+      subscriptionId: null,
+      inventoryItemId: input.inventoryItemId,
+      userId: input.userId,
+      type: "HISTORICAL_ALERT",
+      subject: input.subject,
+      body: input.text,
+      provider: provider.id,
+      status: "FAILED",
+      priceMinor: input.priceMinor,
+      availability: input.availability,
+    });
+    log.error(
+      {
+        userId: input.userId,
+        inventoryItemId: input.inventoryItemId,
+        err: error,
+      },
+      "historical alert delivery failed",
+    );
+    return "failed";
+  }
+}
+
 export type StoredNotification = {
   id: string;
   subscriptionId: string | null;
-  type: "BACK_IN_STOCK" | "PRICE_DROP" | "PRICE_DROP_SUBSEQUENT" | "TEST";
+  inventoryItemId: string | null;
+  type:
+    | "BACK_IN_STOCK"
+    | "PRICE_DROP"
+    | "PRICE_DROP_SUBSEQUENT"
+    | "HISTORICAL_ALERT"
+    | "TEST";
   subject: string;
   body: string;
   provider: string;

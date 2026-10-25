@@ -5,7 +5,15 @@ import { connection } from "next/server";
 
 import { auth } from "@/auth";
 import { findSubscription, listRecentChecks } from "@/modules/monitoring/repository";
-import { getProductHistory } from "@/modules/products/product.repository";
+import {
+  getListingAnalytics,
+  getProductIntelligence,
+} from "@/modules/analytics/analytics.repository";
+import {
+  toListingAnalyticsView,
+  toProductIntelligenceView,
+} from "@/modules/analytics/view";
+import { getListingHistory } from "@/modules/catalogue/catalogue.repository";
 import { listNotificationsForUser } from "@/modules/notifications/notification.service";
 import { ProductDetail } from "@/app/(app)/products/[id]/product-detail";
 
@@ -52,19 +60,29 @@ async function ProductDetailContent({ params }: PageProps) {
     notFound();
   }
 
-  const [{ priceObservations, availabilityObservations }, checks, notifications] =
-    await Promise.all([
-      getProductHistory(subscription.productId),
-      listRecentChecks(id, 50),
-      listNotificationsForUser(session.user.id, 50).then((all) =>
-        all.filter((n) => n.subscriptionId === id),
-      ),
-    ]);
+  const [
+    { priceObservations, availabilityObservations },
+    checks,
+    notifications,
+    analytics,
+    productIntelligence,
+  ] = await Promise.all([
+    getListingHistory(subscription.retailerListingId),
+    listRecentChecks(id, 50),
+    listNotificationsForUser(session.user.id, 50).then((all) =>
+      all.filter((n) => n.subscriptionId === id),
+    ),
+    getListingAnalytics(subscription.retailerListingId),
+    getProductIntelligence(subscription.retailerListing.canonicalProductId, {
+      userId: session.user.id,
+    }),
+  ]);
 
   return (
     <ProductDetail
       subscription={{
         id: subscription.id,
+        retailerListingId: subscription.retailerListingId,
         productName: subscription.product.name,
         productUrl: subscription.product.url,
         imageUrl: subscription.product.imageUrl,
@@ -76,6 +94,7 @@ async function ProductDetailContent({ params }: PageProps) {
         targetPriceMinor: subscription.targetPriceMinor,
         condition: subscription.condition,
         intervalMinutes: subscription.intervalMinutes,
+        snapshotIntervalMinutes: subscription.snapshotIntervalMinutes,
         status: subscription.status,
       }}
       priceObservations={priceObservations.map((o) => ({
@@ -105,6 +124,8 @@ async function ProductDetailContent({ params }: PageProps) {
         availability: n.availability,
         sentAt: n.sentAt.toISOString(),
       }))}
+      analytics={toListingAnalyticsView(analytics)}
+      productIntelligence={toProductIntelligenceView(productIntelligence)}
     />
   );
 }

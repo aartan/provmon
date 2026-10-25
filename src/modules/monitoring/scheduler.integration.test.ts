@@ -1,8 +1,8 @@
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { db } from "@/lib/db";
 import { monitorQueue } from "@/lib/queue";
-import { mockRetailerStore } from "@/modules/retailers/adapters/mock";
+import { mockRetailer, mockRetailerStore } from "@/modules/retailers/adapters/mock";
 import { mockProductUrl } from "@/modules/retailers/adapters/mock/types";
 import { addMonitoringSubscription } from "@/modules/monitoring/service";
 import {
@@ -11,7 +11,7 @@ import {
 } from "@/modules/monitoring/repository";
 import { sweepDueSubscriptions } from "@/modules/monitoring/scheduler";
 import { createMonitoringWorker } from "@/modules/monitoring/worker";
-import { createTestUser, resetTestState } from "@test/helpers/integration";
+import { createTestUser, createTestListing, resetTestState } from "@test/helpers/integration";
 import type { Worker } from "bullmq";
 
 async function waitFor(
@@ -41,11 +41,13 @@ describe("monitoring scheduler (integration)", () => {
     await monitorQueue.obliterate({ force: true });
   });
 
-  async function dueSubscription(overrides: { status?: "ACTIVE" | "PAUSED" } = {}) {
+  async function dueSubscription(
+    overrides: { status?: "ACTIVE" | "PAUSED"; sku?: string } = {},
+  ) {
     const userId = await createTestUser(`due-${dueCounter++}@example.com`);
     const subscription = await addMonitoringSubscription({
       userId,
-      url: mockProductUrl("in-stock"),
+      url: mockProductUrl(overrides.sku ?? "in-stock"),
       condition: "BACK_IN_STOCK",
       intervalMinutes: 15,
     });
@@ -80,21 +82,31 @@ describe("monitoring scheduler (integration)", () => {
     expect(await claimDueSubscription(subscription.id)).toBeNull();
   });
 
-  it("sweeps due subscriptions into the queue without duplicates", async () => {
+  it("groups subscriptions for the same shared listing into one queued check", async () => {
     await dueSubscription();
     await dueSubscription();
 
     const first = await sweepDueSubscriptions();
-    expect(first.enqueued).toBe(2);
+    expect(first.swept).toBe(2);
+    expect(first.enqueued).toBe(1);
 
     const counts = await monitorQueue.getJobCounts("wait", "active", "delayed");
-    expect(counts.wait + counts.active + counts.delayed).toBe(2);
+    expect(counts.wait + counts.active + counts.delayed).toBe(1);
 
     // Nothing due anymore: second sweep enqueues nothing.
     const second = await sweepDueSubscriptions();
     expect(second.enqueued).toBe(0);
     const countsAfter = await monitorQueue.getJobCounts("wait", "active", "delayed");
-    expect(countsAfter.wait + countsAfter.active + countsAfter.delayed).toBe(2);
+    expect(countsAfter.wait + countsAfter.active + countsAfter.delayed).toBe(1);
+  });
+
+  it("enqueues one check per distinct listing", async () => {
+    await dueSubscription({ sku: "in-stock" });
+    await dueSubscription({ sku: "price-drops" });
+
+    const result = await sweepDueSubscriptions();
+    expect(result.swept).toBe(2);
+    expect(result.enqueued).toBe(2);
   });
 
   it("runs an enqueued check through a real worker end to end", async () => {
@@ -111,11 +123,43 @@ describe("monitoring scheduler (integration)", () => {
         return checks === 1;
       });
 
-      const product = await db.product.findUnique({
-        where: { id: subscription.productId },
+      const listing = await db.retailerListing.findUnique({
+        where: { id: subscription.retailerListingId },
       });
-      expect(product?.lastCheckedAt).not.toBeNull();
+      expect(listing?.lastCheckedAt).not.toBeNull();
     } finally {
+      await worker.close();
+    }
+  });
+
+  it("checks a shared listing once and records a check for every active subscriber", async () => {
+    const first = await dueSubscription();
+    const second = await dueSubscription();
+    expect(first.retailerListingId).toBe(second.retailerListingId);
+
+    const worker: Worker = createMonitoringWorker();
+    const spy = vi.spyOn(mockRetailer, "getProduct");
+    try {
+      await sweepDueSubscriptions();
+
+      await waitFor(async () => {
+        const checks = await db.monitoringCheck.count({
+          where: {
+            retailerListingId: first.retailerListingId,
+            status: "SUCCESS",
+          },
+        });
+        return checks === 2;
+      });
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(
+        await db.listingObservation.count({
+          where: { retailerListingId: first.retailerListingId },
+        }),
+      ).toBe(1);
+    } finally {
+      spy.mockRestore();
       await worker.close();
     }
   });
@@ -165,19 +209,14 @@ describe("monitoring scheduler (integration)", () => {
 
   it("re-scheduling applies when the interval is updated", async () => {
     const userId = await createTestUser();
-    const product = await db.product.create({
-      data: {
-        retailerId: "mock",
-        retailerProductId: "interval-test",
-        name: "Interval product",
-        url: "https://mock-retailer.test/products/interval-test",
-        currency: "GBP",
-        currentAvailability: "IN_STOCK",
-      },
+    const { listing } = await createTestListing({
+      retailerProductId: "interval-test",
+      name: "Interval product",
+      url: "https://mock-retailer.test/products/interval-test",
     });
     const subscription = await createSubscription({
       userId,
-      productId: product.id,
+      retailerListingId: listing.id,
       condition: "BACK_IN_STOCK",
       intervalMinutes: 60,
     });

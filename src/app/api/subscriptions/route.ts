@@ -8,6 +8,7 @@ import {
   MonitoringServiceError,
   addMonitoringSubscription,
 } from "@/modules/monitoring/service";
+import { snapshotIntervalMinutesSchema } from "@/modules/monitoring/schemas";
 import { z } from "zod";
 
 const createSchema = z.object({
@@ -19,6 +20,7 @@ const createSchema = z.object({
     .transform((v) => (v === "" ? undefined : v)),
   condition: z.enum(["BACK_IN_STOCK", "PRICE_DROP", "BOTH"]),
   intervalMinutes: z.coerce.number().int(),
+  snapshotIntervalMinutes: snapshotIntervalMinutesSchema.optional(),
 });
 
 export async function GET() {
@@ -60,6 +62,7 @@ export async function POST(request: Request) {
       targetPriceMinor,
       condition: body.condition,
       intervalMinutes: body.intervalMinutes,
+      snapshotIntervalMinutes: body.snapshotIntervalMinutes,
     });
     return NextResponse.json({ subscription }, { status: 201 });
   } catch (error) {
