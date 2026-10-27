@@ -39,6 +39,12 @@ const envSchema = z.object({
     .min(1)
     .default("bf79f2b6699e60a18ae330a1248b452c"),
   CEX_ALGOLIA_INDEX: z.string().min(1).default("prod_cex_uk"),
+  // Delay between catalogue discovery pages. The public retailer APIs rate
+  // limit bursts, so discovery yields between page jobs.
+  CATALOGUE_PAGE_DELAY_MS: z.coerce.number().int().nonnegative().default(500),
+  // Optional comma-separated allowlist for retailer catalogue management.
+  // When empty, any authenticated user may manage discovery.
+  CATALOGUE_ADMIN_EMAILS: z.string().default(""),
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace"])
     .default("info"),

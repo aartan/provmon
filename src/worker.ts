@@ -6,6 +6,11 @@ import { redis } from "@/lib/redis";
 import { registerBuiltInAdapters } from "@/modules/retailers/adapters";
 import { ensureSweepRepeatJob, triggerSweepNow } from "@/modules/monitoring/scheduler";
 import { createMonitoringWorker } from "@/modules/monitoring/worker";
+import {
+  ensureCatalogueSweepRepeatJob,
+  triggerCatalogueSweepNow,
+} from "@/modules/catalogue/discovery.service";
+import { createCatalogueWorker } from "@/modules/catalogue/discovery.worker";
 
 /**
  * Standalone worker entry point for production: `tsx src/worker.ts`.
@@ -18,8 +23,11 @@ async function main(): Promise<void> {
 
   registerBuiltInAdapters();
   const worker = createMonitoringWorker();
+  const catalogueWorker = createCatalogueWorker();
   await ensureSweepRepeatJob();
+  await ensureCatalogueSweepRepeatJob();
   await triggerSweepNow();
+  await triggerCatalogueSweepNow();
 
   let shuttingDown = false;
   const shutdown = async (signal: string) => {
@@ -28,7 +36,7 @@ async function main(): Promise<void> {
     }
     shuttingDown = true;
     log.info({ signal }, "worker shutting down");
-    await worker.close();
+    await Promise.all([worker.close(), catalogueWorker.close()]);
     redis.disconnect();
     process.exit(0);
   };

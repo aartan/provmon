@@ -9,7 +9,11 @@ export async function register() {
     return;
   }
   if (process.env.NEXT_RUNTIME === "nodejs") {
-    const { startInProcessWorker } = await import("@/modules/monitoring/worker");
-    await startInProcessWorker();
+    const [{ startInProcessWorker }, { startCatalogueWorker }] =
+      await Promise.all([
+        import("@/modules/monitoring/worker"),
+        import("@/modules/catalogue/discovery.worker"),
+      ]);
+    await Promise.all([startInProcessWorker(), startCatalogueWorker()]);
   }
 }

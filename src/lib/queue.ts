@@ -14,6 +14,7 @@ import { redis } from "@/lib/redis";
  * is handled by the check worker via adapter concurrency limits.
  */
 export const MONITOR_QUEUE = "monitor";
+export const CATALOGUE_QUEUE = "catalogue";
 
 const queueOptions: QueueOptions = {
   connection: redis,
@@ -37,8 +38,10 @@ function getQueues(): Record<string, Queue> {
   if (!globalForQueues.queues) {
     globalForQueues.queues = {};
   }
-  if (!globalForQueues.queues[MONITOR_QUEUE]) {
-    globalForQueues.queues[MONITOR_QUEUE] = createQueue(MONITOR_QUEUE);
+  for (const name of [MONITOR_QUEUE, CATALOGUE_QUEUE]) {
+    if (!globalForQueues.queues[name]) {
+      globalForQueues.queues[name] = createQueue(name);
+    }
   }
   return globalForQueues.queues;
 }
@@ -49,3 +52,4 @@ export function getQueue(name: string): Queue {
 }
 
 export const monitorQueue: Queue = getQueue(MONITOR_QUEUE);
+export const catalogueQueue: Queue = getQueue(CATALOGUE_QUEUE);
