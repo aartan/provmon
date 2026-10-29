@@ -107,7 +107,7 @@ export async function login(
 
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
-  const callbackUrl = String(formData.get("callbackUrl") ?? "/dashboard");
+  const callbackUrl = String(formData.get("callbackUrl") ?? "/inventory");
 
   if (!z.email().safeParse(email).success || password.length === 0) {
     return { status: "error", message: "Please enter a valid email and password." };

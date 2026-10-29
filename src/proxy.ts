@@ -14,24 +14,46 @@ import authConfig from "@/auth.config";
  */
 const { auth } = NextAuth(authConfig);
 
+const PROTECTED_PREFIXES = [
+  "/dashboard",
+  "/inventory",
+  "/products",
+  "/catalogue",
+  "/retailers",
+  "/settings",
+] as const;
+
 export default async function proxy(request: NextRequest) {
   const session = await auth();
   const isLoggedIn = Boolean(session?.user);
   const { pathname } = request.nextUrl;
 
-  if (!isLoggedIn && pathname.startsWith("/dashboard")) {
+  const isProtected = PROTECTED_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+
+  if (!isLoggedIn && isProtected) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
   if (isLoggedIn && (pathname === "/login" || pathname === "/register")) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    return NextResponse.redirect(new URL("/inventory", request.url));
   }
 
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/login", "/register"],
+  matcher: [
+    "/dashboard/:path*",
+    "/inventory/:path*",
+    "/products/:path*",
+    "/catalogue/:path*",
+    "/retailers/:path*",
+    "/settings/:path*",
+    "/login",
+    "/register",
+  ],
 };

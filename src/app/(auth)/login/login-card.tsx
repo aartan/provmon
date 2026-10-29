@@ -19,7 +19,7 @@ import { login, type AuthFormState } from "@/app/(auth)/actions";
 
 export function LoginForm() {
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") ?? "/dashboard";
+  const callbackUrl = searchParams.get("callbackUrl") ?? "/inventory";
   const [state, formAction, pending] = useActionState<AuthFormState, FormData>(
     login,
     { status: "idle" },

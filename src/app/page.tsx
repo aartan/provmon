@@ -45,7 +45,7 @@ async function HomeActions() {
     <div className="flex gap-3">
       {session?.user ? (
         <Button asChild>
-          <Link href="/dashboard">Go to dashboard</Link>
+          <Link href="/inventory">Go to inventory</Link>
         </Button>
       ) : (
         <>

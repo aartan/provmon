@@ -17,18 +17,30 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       <header className="border-b">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4">
           <div className="flex items-center gap-6">
-            <Link href="/dashboard" className="font-semibold">
+            <Link href="/inventory" className="font-semibold">
               ProvMon
             </Link>
-            <nav className="hidden text-sm text-muted-foreground sm:flex sm:gap-4">
+            <nav className="hidden text-sm text-muted-foreground md:flex md:gap-3 lg:gap-4">
               <Link href="/dashboard" className="hover:text-foreground">
                 Dashboard
               </Link>
-              <Link href="/products" className="hover:text-foreground">
-                Products
+              <Link href="/catalogue" className="hover:text-foreground">
+                Catalogue
               </Link>
-              <Link href="/products/add" className="hover:text-foreground">
-                Add product
+              <Link href="/inventory" className="hover:text-foreground">
+                Inventory
+              </Link>
+              <Link href="/products" className="hover:text-foreground">
+                Monitoring
+              </Link>
+              <Link
+                href="/products/add"
+                className="hidden hover:text-foreground lg:inline"
+              >
+                Add monitor
+              </Link>
+              <Link href="/retailers" className="hover:text-foreground">
+                Retailers
               </Link>
               <Link href="/settings" className="hover:text-foreground">
                 Settings
