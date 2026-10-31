@@ -26,6 +26,10 @@ services:
       # The standalone worker service runs the BullMQ worker and sweep
       WORKER_ENABLED: "false"
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      CATALOGUE_PAGE_DELAY_MS: ${CATALOGUE_PAGE_DELAY_MS:-500}
+      CATALOGUE_ADMIN_EMAILS: ${CATALOGUE_ADMIN_EMAILS:-}
+      SNAPSHOT_INTERVAL_MINUTES: ${SNAPSHOT_INTERVAL_MINUTES:-1440}
+      ALERT_CHECK_INTERVAL_MINUTES: ${ALERT_CHECK_INTERVAL_MINUTES:-1440}
     ports:
       - "3000:3000"
     depends_on:
@@ -53,6 +57,10 @@ services:
       DEV_SMTP_HOST: mailpit
       DEV_SMTP_PORT: "1025"
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      CATALOGUE_PAGE_DELAY_MS: ${CATALOGUE_PAGE_DELAY_MS:-500}
+      CATALOGUE_ADMIN_EMAILS: ${CATALOGUE_ADMIN_EMAILS:-}
+      SNAPSHOT_INTERVAL_MINUTES: ${SNAPSHOT_INTERVAL_MINUTES:-1440}
+      ALERT_CHECK_INTERVAL_MINUTES: ${ALERT_CHECK_INTERVAL_MINUTES:-1440}
     depends_on:
       postgres:
         condition: service_healthy

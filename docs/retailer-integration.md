@@ -34,6 +34,11 @@ Every adapter implements `RetailerAdapter`
   (`NETWORK`, `TIMEOUT`, `RATE_LIMITED`, `BLOCKED`, `PARSE`,
   `PRODUCT_NOT_FOUND`); the engine's retry policy is driven entirely by
   the error's `retryable` flag.
+- `catalogue` (optional) — a `CatalogueDiscovery` implementation that
+  enumerates the retailer's full product list page by page. Adapters without
+  it keep working for URL monitoring. See
+  [`catalogue-discovery.md`](catalogue-discovery.md) for the cursor contract
+  and import flow.
 
 Availability must be one of `IN_STOCK`, `OUT_OF_STOCK`, `PREORDER`,
 `UNKNOWN`. `UNKNOWN` is the honest answer when stock cannot be

@@ -1,7 +1,8 @@
 # ProvMon
 
-Multi-retailer product price & stock monitoring platform. Paste a product
-URL, configure your conditions, and get email notifications when a product
+Multi-retailer product price & stock monitoring platform. Browse a retailer's
+full catalogue with continuous shared price history, then paste a product URL
+or add a catalogue product to monitoring and get email notifications when it
 comes back in stock or drops to your target price.
 
 ## Stack
@@ -21,6 +22,12 @@ Retailer integrations are isolated behind a common adapter interface in
 `src/modules/retailers`. The monitoring engine, scheduler, and notification
 rules only ever see normalised product data — adding a retailer means adding
 an adapter module and registering it, with no changes to core code.
+
+Discovery-capable adapters also implement the optional `CatalogueDiscovery`
+contract. Their products are imported into a shared catalogue with continuous
+price history; monitoring remains optional and per user. See
+[`docs/catalogue-discovery.md`](docs/catalogue-discovery.md) for the data
+model, schedules, discovery flow, and API.
 
 Domain modules live in `src/modules/` and are free of Next.js imports so they
 can be tested in isolation. The web app is a thin layer in `src/app`.
