@@ -29,15 +29,33 @@ export function extractProductCode(url: string): string | undefined {
 }
 
 /**
+ * Cash Converters uses an enormous placeholder as its "no RRP" value. The
+ * shared price parser also enforces a catalogue-wide maximum, but handling
+ * the known sentinel here keeps the retailer-specific semantics explicit.
+ */
+const MISSING_PRICE_SENTINELS = new Set(["999999999900"]);
+
+function parseCashConvertersPrice(
+  value: string | null | undefined,
+): number | undefined {
+  const normalized = value?.trim();
+  if (!normalized || MISSING_PRICE_SENTINELS.has(normalized)) {
+    return undefined;
+  }
+  return parsePriceToMinor(normalized) ?? undefined;
+}
+
+/**
  * Map a search-API product item into the normalised shape. This function
  * is the only place Cash Converters' field names exist as domain concepts.
  */
 export function parseProductListItem(
   item: CashConvertersProductListItem,
 ): ProductDetails {
-  // Sp is the selling price; fall back to Rrp when Sp is missing.
-  const priceSource = item.Sp ?? item.Rrp ?? null;
-  const originalPriceMinor = parsePriceToMinor(item.Rrp) ?? undefined;
+  // Sp is the selling price; fall back to Rrp when Sp is missing or sentinel.
+  const priceMinor =
+    parseCashConvertersPrice(item.Sp) ?? parseCashConvertersPrice(item.Rrp);
+  const originalPriceMinor = parseCashConvertersPrice(item.Rrp);
   const imageUrl =
     item.AbsoluteImageUrl ??
     (item.ImageUrl ? `${CASHCONVERTERS_SITE_URL}${item.ImageUrl}` : undefined);
@@ -51,7 +69,7 @@ export function parseProductListItem(
     currency: "GBP",
     brand: item.Brand ?? undefined,
     category: item.Category ?? item.ProductList ?? undefined,
-    priceMinor: parsePriceToMinor(priceSource) ?? undefined,
+    priceMinor,
     originalPriceMinor,
     availability: "IN_STOCK",
     lastUpdated: new Date(),

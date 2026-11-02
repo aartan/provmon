@@ -4,6 +4,35 @@
  * Floats are only used for display, never for comparisons.
  */
 
+/**
+ * Upper bound for a single price in minor units (£10,000,000).
+ *
+ * Retailer APIs occasionally use very large sentinel values (for example
+ * 999999999900) to mean "no price". PostgreSQL stores prices in an INTEGER,
+ * whose maximum is 2,147,483,647 minor units, so anything above this
+ * practical catalogue limit is treated as missing rather than allowed to
+ * overflow the database.
+ */
+export const MAX_PRICE_MINOR = 1_000_000_000;
+
+/**
+ * Return a safe, storable integer price or null.
+ *
+ * This is the final guard before a value reaches Prisma; adapters may miss
+ * a retailer-specific sentinel, and one bad row must never abort a page.
+ */
+export function safePriceMinor(
+  value: number | null | undefined,
+): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (!Number.isInteger(value) || value < 0 || value > MAX_PRICE_MINOR) {
+    return null;
+  }
+  return value;
+}
+
 export function decimalToMinor(value: number): number {
   if (!Number.isFinite(value)) {
     throw new Error(`Cannot convert non-finite value to minor units: ${value}`);
@@ -45,7 +74,8 @@ export function formatMinor(
 /**
  * Parse a retailer-provided price string into minor units.
  * Accepts "299.99", "1,234.56", "£299.99", " 349.99 " etc.
- * Returns null when no number can be extracted.
+ * Returns null when no number can be extracted or the amount is outside the
+ * storable catalogue range.
  */
 export function parsePriceToMinor(value: string | number | null | undefined): number | null {
   if (value === null || value === undefined) {
@@ -61,5 +91,5 @@ export function parsePriceToMinor(value: string | number | null | undefined): nu
   if (!Number.isFinite(number) || number < 0) {
     return null;
   }
-  return decimalToMinor(number);
+  return safePriceMinor(decimalToMinor(number));
 }

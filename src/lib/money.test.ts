@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   decimalToMinor,
   formatMinor,
+  MAX_PRICE_MINOR,
   minorToDecimal,
   parsePriceToMinor,
+  safePriceMinor,
 } from "@/lib/money";
 
 describe("decimalToMinor", () => {
@@ -65,6 +67,32 @@ describe("parsePriceToMinor", () => {
 
   it("returns null for negative amounts", () => {
     expect(parsePriceToMinor("-5.00")).toBeNull();
+  });
+
+  it("rejects cash converters missing-price sentinels", () => {
+    expect(parsePriceToMinor("999999999900")).toBeNull();
+  });
+
+  it("rejects prices above the storable catalogue limit", () => {
+    expect(parsePriceToMinor(MAX_PRICE_MINOR / 100)).toBe(MAX_PRICE_MINOR);
+    expect(parsePriceToMinor(MAX_PRICE_MINOR / 100 + 0.01)).toBeNull();
+  });
+});
+
+describe("safePriceMinor", () => {
+  it("accepts valid integer minor amounts", () => {
+    expect(safePriceMinor(0)).toBe(0);
+    expect(safePriceMinor(29999)).toBe(29999);
+    expect(safePriceMinor(MAX_PRICE_MINOR)).toBe(MAX_PRICE_MINOR);
+  });
+
+  it("rejects missing, negative, fractional, and out-of-range values", () => {
+    expect(safePriceMinor(null)).toBeNull();
+    expect(safePriceMinor(undefined)).toBeNull();
+    expect(safePriceMinor(-1)).toBeNull();
+    expect(safePriceMinor(1.5)).toBeNull();
+    expect(safePriceMinor(MAX_PRICE_MINOR + 1)).toBeNull();
+    expect(safePriceMinor(99_999_999_990_000)).toBeNull();
   });
 });
 

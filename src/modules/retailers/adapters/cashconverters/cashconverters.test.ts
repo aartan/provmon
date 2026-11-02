@@ -114,6 +114,35 @@ describe("parseProductListItem", () => {
     expect(details.priceMinor).toBe(224999);
   });
 
+  it("treats the missing-price RRP sentinel as absent", () => {
+    const details = parseProductListItem({
+      ...inStockItemFixture.Value.ProductList.ProductListItems[0],
+      Rrp: "999999999900",
+    });
+    expect(details.priceMinor).toBe(29999);
+    expect(details.originalPriceMinor).toBeUndefined();
+  });
+
+  it("falls back to a valid Rrp when Sp is the sentinel", () => {
+    const details = parseProductListItem({
+      ...inStockItemFixture.Value.ProductList.ProductListItems[0],
+      Sp: "999999999900",
+      Rrp: "199.99",
+    });
+    expect(details.priceMinor).toBe(19999);
+    expect(details.originalPriceMinor).toBe(19999);
+  });
+
+  it("imports products with no usable price as price-less listings", () => {
+    const details = parseProductListItem({
+      ...inStockItemFixture.Value.ProductList.ProductListItems[0],
+      Sp: "999999999900",
+      Rrp: "999999999900",
+    });
+    expect(details.priceMinor).toBeUndefined();
+    expect(details.originalPriceMinor).toBeUndefined();
+  });
+
   it("resolves relative image URLs against the site", () => {
     const item = {
       ...inStockItemFixture.Value.ProductList.ProductListItems[0],

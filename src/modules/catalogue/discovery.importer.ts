@@ -4,6 +4,7 @@ import { Prisma } from "@/generated/prisma/client";
 import type { AvailabilityStatus, ProductDetails } from "@/modules/retailers/core/types";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
+import { safePriceMinor } from "@/lib/money";
 import {
   computeDiscountPct,
 } from "@/modules/catalogue/catalogue.repository";
@@ -380,6 +381,7 @@ export async function importCataloguePage(
       priceChanges: 0,
     };
   }
+  let invalidPriceCount = 0;
 
   const existing = await loadExistingListings(input.retailerId, items);
   const newItems = items.filter((item) => !existing.has(itemKey(item)));
@@ -404,6 +406,14 @@ export async function importCataloguePage(
     if (!canonicalProductId) {
       continue;
     }
+    const priceMinor = safePriceMinor(item.priceMinor);
+    const originalPriceMinor = safePriceMinor(item.originalPriceMinor);
+    if (
+      (item.priceMinor !== undefined && priceMinor === null) ||
+      (item.originalPriceMinor !== undefined && originalPriceMinor === null)
+    ) {
+      invalidPriceCount += 1;
+    }
     const gtin = normalizeGtin(item.gtin);
     listingRows.push({
       id: randomUUID(),
@@ -420,11 +430,11 @@ export async function importCataloguePage(
       url: item.url,
       imageUrl: item.imageUrl || null,
       currency: item.currency,
-      currentPriceMinor: item.priceMinor ?? null,
-      currentOriginalPriceMinor: item.originalPriceMinor ?? null,
+      currentPriceMinor: priceMinor,
+      currentOriginalPriceMinor: originalPriceMinor,
       currentDiscountPct: computeDiscountPct(
-        item.priceMinor ?? null,
-        item.originalPriceMinor ?? null,
+        priceMinor,
+        originalPriceMinor,
         item.discountPct,
       ),
       currentAvailability: availabilityOf(item),
@@ -451,7 +461,7 @@ export async function importCataloguePage(
   // such as the generated id, are authoritative in the database. State and
   // observation writes share one transaction so a retried page can never
   // commit a price update without its history row or vice versa.
-  return db.$transaction(async (tx) => {
+  const result = await db.$transaction(async (tx) => {
     const current = await loadExistingListings(input.retailerId, items, tx);
     const createdIdSet = new Set(createdIds);
 
@@ -504,15 +514,24 @@ export async function importCataloguePage(
         continue;
       }
 
+      const priceMinor = safePriceMinor(item.priceMinor);
+      const originalPriceMinor = safePriceMinor(item.originalPriceMinor);
+      if (
+        (item.priceMinor !== undefined && priceMinor === null) ||
+        (item.originalPriceMinor !== undefined && originalPriceMinor === null)
+      ) {
+        invalidPriceCount += 1;
+      }
+
       if (createdIdSet.has(listing.id)) {
         itemsCreated += 1;
         observations.push({
           retailerListingId: listing.id,
-          priceMinor: item.priceMinor ?? null,
-          originalPriceMinor: item.originalPriceMinor ?? null,
+          priceMinor,
+          originalPriceMinor,
           discountPct: computeDiscountPct(
-            item.priceMinor ?? null,
-            item.originalPriceMinor ?? null,
+            priceMinor,
+            originalPriceMinor,
             item.discountPct,
           ),
           currency: item.currency,
@@ -537,13 +556,13 @@ export async function importCataloguePage(
       }
 
       const nextPrice =
-        item.priceMinor === undefined
+        item.priceMinor === undefined || priceMinor === null
           ? listing.currentPriceMinor
-          : item.priceMinor;
+          : priceMinor;
       const nextOriginal =
-        item.originalPriceMinor === undefined
+        item.originalPriceMinor === undefined || originalPriceMinor === null
           ? listing.currentOriginalPriceMinor
-          : item.originalPriceMinor;
+          : originalPriceMinor;
       const nextDiscount = computeDiscountPct(
         nextPrice,
         nextOriginal,
@@ -754,6 +773,20 @@ export async function importCataloguePage(
     maxWait: 10_000,
     timeout: 60_000,
   });
+
+  if (invalidPriceCount > 0) {
+    logger.warn(
+      {
+        component: "catalogue-discovery",
+        retailerId: input.retailerId,
+        invalidPriceCount,
+        pageItems: items.length,
+      },
+      "ignored out-of-range catalogue prices",
+    );
+  }
+
+  return result;
 }
 
 /**
