@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { CeXDiscovery } from "@/modules/retailers/adapters/cex/discovery";
-import {
-  RetailerRateLimitedError,
-} from "@/modules/retailers/core/errors";
 
 interface StubCall {
   url: string;
@@ -246,13 +243,18 @@ describe("CeXDiscovery", () => {
     expect(calls[1]?.params.get("facetFilters")).toBeNull();
   });
 
-  it("maps rate limits to a typed retailer error", async () => {
+  it("maps rate limits to a typed retailer error with Retry-After", async () => {
     const discovery = createDiscovery(
-      () => new Response("rate limited", { status: 429 }),
+      () =>
+        new Response("rate limited", {
+          status: 429,
+          headers: { "retry-after": "120" },
+        }),
     );
 
-    await expect(discovery.fetchPage(null)).rejects.toBeInstanceOf(
-      RetailerRateLimitedError,
-    );
+    await expect(discovery.fetchPage(null)).rejects.toMatchObject({
+      name: "RetailerRateLimitedError",
+      retryAfterMs: 120_000,
+    });
   });
 });

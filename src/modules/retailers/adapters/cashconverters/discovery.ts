@@ -9,6 +9,7 @@ import type {
   CatalogueDiscovery,
   CatalogueDiscoveryPage,
 } from "@/modules/retailers/core/catalogue";
+import { parseRetryAfterHeader } from "@/modules/retailers/core/retry-after";
 import type { ProductDetails } from "@/modules/retailers/core/types";
 import {
   parseProductListItem,
@@ -71,7 +72,11 @@ export class CashConvertersDiscovery implements CatalogueDiscovery {
     }
 
     if (response.status === 429) {
-      throw new RetailerRateLimitedError("cashconverters");
+      throw new RetailerRateLimitedError(
+        "cashconverters",
+        undefined,
+        parseRetryAfterHeader(response.headers.get("retry-after")),
+      );
     }
     if (response.status === 403) {
       throw new RetailerBlockedError("cashconverters");

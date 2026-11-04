@@ -77,9 +77,13 @@ export class RetailerTimeoutError extends RetailerError {
 }
 
 export class RetailerRateLimitedError extends RetailerError {
-  constructor(retailerId: string, cause?: unknown) {
+  /** Server-provided Retry-After duration, when present. */
+  readonly retryAfterMs?: number;
+
+  constructor(retailerId: string, cause?: unknown, retryAfterMs?: number) {
     super({ retailerId, code: "RATE_LIMITED", message: "Rate limited by retailer", cause });
     this.name = "RetailerRateLimitedError";
+    this.retryAfterMs = retryAfterMs;
   }
 }
 

@@ -4,7 +4,6 @@ import { CashConvertersDiscovery } from "@/modules/retailers/adapters/cashconver
 import {
   RetailerBlockedError,
   RetailerParseError,
-  RetailerRateLimitedError,
 } from "@/modules/retailers/core/errors";
 
 interface StubCall {
@@ -126,9 +125,16 @@ describe("CashConvertersDiscovery", () => {
   it("maps failures to typed retailer errors", async () => {
     await expect(
       createDiscovery(
-        () => new Response("limited", { status: 429 }),
+        () =>
+          new Response("limited", {
+            status: 429,
+            headers: { "retry-after": "90" },
+          }),
       ).fetchPage(null),
-    ).rejects.toBeInstanceOf(RetailerRateLimitedError);
+    ).rejects.toMatchObject({
+      name: "RetailerRateLimitedError",
+      retryAfterMs: 90_000,
+    });
 
     await expect(
       createDiscovery(

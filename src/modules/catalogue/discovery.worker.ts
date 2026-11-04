@@ -1,9 +1,15 @@
-import { Worker, type Job } from "bullmq";
+import { DelayedError, Worker, type Job } from "bullmq";
 
 import { logger } from "@/lib/logger";
 import { CATALOGUE_QUEUE } from "@/lib/queue";
 import { redis } from "@/lib/redis";
 import { registerBuiltInAdapters } from "@/modules/retailers/adapters";
+import { RetailerRateLimitedError } from "@/modules/retailers/core/errors";
+import { findDiscoveryRun } from "@/modules/catalogue/discovery.repository";
+import {
+  getRetailerCooldownUntil,
+  noteCatalogueRateLimit,
+} from "@/modules/catalogue/cooldown";
 import {
   CATALOGUE_STEP_JOB_NAME,
   CATALOGUE_SWEEP_JOB_NAME,
@@ -20,10 +26,47 @@ const log = logger.child({ component: "catalogue-worker" });
 async function processor(job: Job): Promise<unknown> {
   switch (job.name) {
     case CATALOGUE_STEP_JOB_NAME: {
-      const { runId } = job.data as CatalogueStepJobData;
+      const data = job.data as CatalogueStepJobData & {
+        retailerId?: string;
+      };
+      const { runId } = data;
+      const retailerId =
+        data.retailerId ?? (await findDiscoveryRun(runId))?.retailerId;
+
+      // A 429 applies to the retailer, not just the page that received it.
+      // Delay without consuming an attempt until the cooldown expires.
+      if (retailerId) {
+        const cooldownUntil = await getRetailerCooldownUntil(retailerId);
+        if (cooldownUntil > Date.now() && job.token) {
+          await job.moveToDelayed(cooldownUntil, job.token);
+          log.info(
+            { jobId: job.id, runId, retailerId, cooldownUntil },
+            "catalogue job delayed by retailer cooldown",
+          );
+          throw new DelayedError();
+        }
+      }
+
       try {
         return await processCatalogueDiscoveryStep(runId);
       } catch (error) {
+        if (error instanceof RetailerRateLimitedError && retailerId) {
+          const cooldownUntil = await noteCatalogueRateLimit(
+            retailerId,
+            error.retryAfterMs,
+          );
+          log.warn(
+            {
+              jobId: job.id,
+              runId,
+              retailerId,
+              retryAfterMs: error.retryAfterMs,
+              cooldownUntil,
+              attempt: job.attemptsMade + 1,
+            },
+            "retailer rate limited; cooldown applied",
+          );
+        }
         // Mark the run as failed before BullMQ's final attempt is recorded,
         // so the retailer management UI never shows a permanently "running"
         // run after its retries are exhausted. Earlier attempts keep the
@@ -61,10 +104,17 @@ export function createCatalogueWorker(): Worker {
   });
 
   worker.on("failed", (job, error) => {
-    log.error(
-      { jobId: job?.id, jobName: job?.name, err: error },
-      "catalogue job failed",
-    );
+    const fields = {
+      jobId: job?.id,
+      jobName: job?.name,
+      attemptsMade: job?.attemptsMade,
+      err: error,
+    };
+    if (error instanceof RetailerRateLimitedError) {
+      log.warn(fields, "catalogue attempt rate limited; retry scheduled");
+    } else {
+      log.error(fields, "catalogue job failed");
+    }
   });
 
   worker.on("error", (error) => {

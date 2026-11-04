@@ -11,6 +11,7 @@ import type {
   CatalogueDiscovery,
   CatalogueDiscoveryPage,
 } from "@/modules/retailers/core/catalogue";
+import { parseRetryAfterHeader } from "@/modules/retailers/core/retry-after";
 import type { ProductDetails } from "@/modules/retailers/core/types";
 import { parseProductHit } from "@/modules/retailers/adapters/cex/parser";
 import { productHitSchema } from "@/modules/retailers/adapters/cex/schemas";
@@ -460,7 +461,11 @@ export class CeXDiscovery implements CatalogueDiscovery {
     }
 
     if (response.status === 429) {
-      throw new RetailerRateLimitedError("cex");
+      throw new RetailerRateLimitedError(
+        "cex",
+        undefined,
+        parseRetryAfterHeader(response.headers.get("retry-after")),
+      );
     }
     if (response.status === 403) {
       throw new RetailerBlockedError("cex");
