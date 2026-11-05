@@ -5,10 +5,10 @@ import { auth } from "@/auth";
 import { logger } from "@/lib/logger";
 import { isCatalogueAdmin } from "@/modules/catalogue/admin";
 import { CatalogueDiscoveryError } from "@/modules/catalogue/discovery.service";
-import { startRetailerCatalogueDiscovery } from "@/modules/catalogue/retailer-admin.service";
+import { startRetailerCatalogueDiscovery, resumeRetailerCatalogueDiscovery } from "@/modules/catalogue/retailer-admin.service";
 
 const bodySchema = z.object({
-  mode: z.enum(["initial", "refresh"]).default("refresh"),
+  mode: z.enum(["initial", "refresh", "resume"]).default("refresh"),
 });
 
 interface RouteContext {
@@ -35,7 +35,10 @@ export async function POST(request: Request, context: RouteContext) {
 
   const { id } = await context.params;
   try {
-    const run = await startRetailerCatalogueDiscovery(id, body.mode);
+    const run =
+      body.mode === "resume"
+        ? await resumeRetailerCatalogueDiscovery(id)
+        : await startRetailerCatalogueDiscovery(id, body.mode);
     return NextResponse.json({ run }, { status: 202 });
   } catch (error) {
     if (error instanceof CatalogueDiscoveryError) {

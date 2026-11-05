@@ -338,6 +338,30 @@ export async function failDiscoveryRun(
 }
 
 /**
+ * Re-queue a failed run at its persisted cursor. Counters, revision, start
+ * time, and mode are deliberately preserved so a resume continues the scan
+ * instead of re-importing everything from the beginning.
+ */
+export async function resumeDiscoveryRun(
+  runId: string,
+): Promise<CatalogueDiscoveryRunRecord | null> {
+  const updated = await db.catalogueDiscoveryRun.updateMany({
+    where: { id: runId, status: "FAILED" },
+    data: {
+      status: "QUEUED",
+      error: null,
+      finishedAt: null,
+      heartbeatAt: null,
+      updatedAt: new Date(),
+    },
+  });
+  if (updated.count !== 1) {
+    return null;
+  }
+  return findDiscoveryRun(runId);
+}
+
+/**
  * Mark abandoned runs as failed. Heartbeats are written on every page; a run
  * with no heartbeat for this long has no live worker (for example a process
  * crash between BullMQ retries). It can then be restarted manually or by the

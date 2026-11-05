@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 import { db } from "@/lib/db";
 import {
+  resumeCatalogueDiscovery,
   processCatalogueDiscoveryStep,
   startCatalogueDiscovery,
   sweepDueCatalogues,
@@ -20,7 +21,10 @@ import {
   addCatalogueListingsToInventory,
   addCatalogueListingsToMonitoring,
 } from "@/modules/catalogue/catalogue.service";
-import { updateRetailerDiscoverySettings } from "@/modules/catalogue/retailer-admin.service";
+import {
+  listRetailerAdminViews,
+  updateRetailerDiscoverySettings,
+} from "@/modules/catalogue/retailer-admin.service";
 import { registerBuiltInAdapters } from "@/modules/retailers/adapters";
 import { mockRetailerStore } from "@/modules/retailers/adapters/mock";
 import type { ProductDetails } from "@/modules/retailers/core/types";
@@ -162,6 +166,58 @@ describe("catalogue discovery importer (integration)", () => {
     });
     expect(stored.currentPriceMinor).toBe(1000);
     expect(stored.lastCatalogueSeenAt?.getTime()).toBe(seenAt.getTime());
+    expect(
+      await db.listingObservation.count({
+        where: { retailerListingId: listing.id },
+      }),
+    ).toBe(1);
+  });
+
+  it("ignores out-of-range prices instead of failing the page", async () => {
+    const result = await importCataloguePage({
+      retailerId: "mock",
+      items: [
+        details("overflow", {
+          priceMinor: 99_999_999_990_000,
+          originalPriceMinor: 99_999_999_990_000,
+        }),
+      ],
+      seenAt: new Date(),
+    });
+
+    expect(result.itemsCreated).toBe(1);
+    const listing = await db.retailerListing.findFirstOrThrow({
+      where: { retailerId: "mock", retailerProductId: "overflow" },
+    });
+    expect(listing.currentPriceMinor).toBeNull();
+    expect(listing.currentOriginalPriceMinor).toBeNull();
+    const observations = await db.listingObservation.findMany({
+      where: { retailerListingId: listing.id },
+    });
+    expect(observations).toHaveLength(1);
+    expect(observations[0]?.priceMinor).toBeNull();
+  });
+
+  it("keeps the existing price when a refresh sends an invalid value", async () => {
+    await importCataloguePage({
+      retailerId: "mock",
+      items: [details("invalid-refresh", { priceMinor: 1200 })],
+      seenAt: new Date(Date.now() - 60_000),
+    });
+    const listing = await db.retailerListing.findFirstOrThrow({
+      where: { retailerId: "mock", retailerProductId: "invalid-refresh" },
+    });
+
+    const result = await importCataloguePage({
+      retailerId: "mock",
+      items: [details("invalid-refresh", { priceMinor: 99_999_999_990_000 })],
+      seenAt: new Date(),
+    });
+    expect(result.itemsUnchanged).toBe(1);
+    const stored = await db.retailerListing.findUniqueOrThrow({
+      where: { id: listing.id },
+    });
+    expect(stored.currentPriceMinor).toBe(1200);
     expect(
       await db.listingObservation.count({
         where: { retailerListingId: listing.id },
@@ -406,6 +462,64 @@ describe("catalogue discovery run (integration)", () => {
     expect(
       await db.retailerListing.count({ where: { retailerId: "mock" } }),
     ).toBe(55);
+  });
+
+  it("resumes a failed run from its saved cursor and counters", async () => {
+    for (let index = 0; index < 55; index += 1) {
+      mockRetailerStore.set(`resume-${index}`, {
+        name: `Resume product ${String(index).padStart(2, "0")}`,
+        currency: "GBP",
+        priceMinor: 1000 + index,
+        availability: "IN_STOCK",
+        sku: `resume-${index}`,
+      });
+    }
+
+    const run = await startCatalogueDiscovery({
+      retailerId: "mock",
+      trigger: "MANUAL",
+    });
+    const first = await processCatalogueDiscoveryStep(run.id);
+    expect(first.status).toBe("RUNNING");
+    expect((await findActiveDiscoveryRun("mock"))?.itemsSeen).toBe(50);
+
+    await db.catalogueDiscoveryRun.update({
+      where: { id: run.id },
+      data: {
+        status: "FAILED",
+        error: "simulated failure",
+        finishedAt: new Date(),
+      },
+    });
+
+    const adminView = (await listRetailerAdminViews()).find(
+      (view) => view.id === "mock",
+    );
+    expect(adminView?.latestRun?.resumable).toBe(true);
+
+    const resumed = await resumeCatalogueDiscovery("mock");
+    expect(resumed.id).toBe(run.id);
+    expect(resumed.status).toBe("QUEUED");
+    expect(resumed.revision).toBe(run.revision + 1);
+    expect(resumed.itemsSeen).toBe(50);
+
+    const second = await processCatalogueDiscoveryStep(run.id);
+    expect(second.status).toBe("COMPLETED");
+
+    const completed = await db.catalogueDiscoveryRun.findUniqueOrThrow({
+      where: { id: run.id },
+    });
+    expect(completed.itemsSeen).toBe(55);
+    expect(completed.itemsCreated).toBe(55);
+    expect(
+      await db.retailerListing.count({ where: { retailerId: "mock" } }),
+    ).toBe(55);
+  });
+
+  it("rejects resume when no failed run exists", async () => {
+    await expect(resumeCatalogueDiscovery("mock")).rejects.toMatchObject({
+      statusCode: 409,
+    });
   });
 
   it("runs the full enable → discover → browse → history → monitor flow", async () => {

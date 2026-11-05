@@ -63,10 +63,25 @@ the same cursor.
   the next page rather than restarting the scan.
 - Each page job retries up to five times with exponential backoff. Only the
   final failed attempt marks the run `FAILED`.
+- A 429 applies to the whole retailer, not just the page that received it.
+  The worker stores a per-retailer cooldown in Redis, honours `Retry-After`
+  when present, and delays the job without consuming an attempt until the
+  cooldown expires. CeX and Cash Converters cool down independently.
+- A failed run with a saved cursor can be resumed from the retailer page,
+  preserving its cursor and counters instead of rescanning from the start.
 - Abandoned runs whose heartbeat is over an hour old are failed by the sweep,
   which allows a later scheduled or manual run to start.
 - Re-importing a page after a partial failure is idempotent: unchanged
   products add no observation and no listing.
+
+### Price safety
+
+Retailer payloads occasionally contain missing-price sentinels. Cash
+Converters uses `999999999900` for "no RRP". All adapter prices pass through a
+shared maximum of £10,000,000 in minor units, and the importer performs a
+final safe-integer check before writing. Out-of-range values are stored as
+`null`; they never abort an entire catalogue page.
+
 
 ### Delisting and history
 

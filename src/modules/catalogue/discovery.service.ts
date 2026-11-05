@@ -11,9 +11,11 @@ import {
   failDiscoveryRun,
   findActiveDiscoveryRun,
   findDiscoveryRun,
+  findLatestDiscoveryRun,
   getRetailerCatalogue,
   listDueCatalogues,
   recoverStaleDiscoveryRuns,
+  resumeDiscoveryRun,
   type CatalogueDiscoveryRunRecord,
 } from "@/modules/catalogue/discovery.repository";
 import {
@@ -36,6 +38,8 @@ export const CATALOGUE_SWEEP_INTERVAL_MS = 15 * 60_000;
 
 export interface CatalogueStepJobData {
   runId: string;
+  /** Included on new jobs; older queued jobs fall back to a DB lookup. */
+  retailerId?: string;
 }
 
 export class CatalogueDiscoveryError extends Error {
@@ -66,11 +70,12 @@ export function catalogueAdapter(retailerId: string) {
 export async function enqueueCatalogueStep(
   runId: string,
   revision: number,
+  retailerId?: string,
   delayMs = 0,
 ): Promise<void> {
   await catalogueQueue.add(
     CATALOGUE_STEP_JOB_NAME,
-    { runId } satisfies CatalogueStepJobData,
+    { runId, retailerId } satisfies CatalogueStepJobData,
     {
       jobId: `catalogue-${runId}-${revision}`,
       delay: delayMs,
@@ -91,6 +96,20 @@ export interface StartCatalogueDiscoveryInput {
   forceRefresh?: boolean;
 }
 
+async function removeFinishedStepJob(
+  runId: string,
+  revision: number,
+): Promise<void> {
+  const job = await catalogueQueue.getJob(`catalogue-${runId}-${revision}`);
+  if (!job) {
+    return;
+  }
+  const state = await job.getState();
+  if (state === "failed" || state === "completed") {
+    await job.remove();
+  }
+}
+
 /**
  * Start a discovery run, or return the already-active run for this retailer.
  * The unique partial index on (retailer_id) WHERE status IN ('QUEUED',
@@ -103,7 +122,7 @@ export async function startCatalogueDiscovery(
 
   const active = await findActiveDiscoveryRun(input.retailerId);
   if (active) {
-    await enqueueCatalogueStep(active.id, active.revision);
+    await enqueueCatalogueStep(active.id, active.revision, active.retailerId);
     return active;
   }
 
@@ -121,8 +140,65 @@ export async function startCatalogueDiscovery(
 
   // A concurrent starter may have won the unique active-run index. Queueing
   // the same revision is harmless: the worker's revision guard skips it.
-  await enqueueCatalogueStep(run.id, run.revision);
+  await enqueueCatalogueStep(run.id, run.revision, run.retailerId);
   return run;
+}
+
+/**
+ * Continue a failed run at its saved cursor. A new run would start from the
+ * beginning; resuming preserves the cursor and accumulated counters.
+ */
+export async function resumeCatalogueDiscovery(
+  retailerId: string,
+): Promise<CatalogueDiscoveryRunRecord> {
+  catalogueAdapter(retailerId);
+
+  const active = await findActiveDiscoveryRun(retailerId);
+  if (active) {
+    await enqueueCatalogueStep(active.id, active.revision, active.retailerId);
+    return active;
+  }
+
+  const latest = await findLatestDiscoveryRun(retailerId);
+  if (!latest || latest.status !== "FAILED" || latest.cursor === null) {
+    throw new CatalogueDiscoveryError(
+      "No failed discovery run is available to resume",
+      409,
+    );
+  }
+
+  // A resumed run reuses its revision, so remove the exhausted failed job
+  // before adding the same deterministic job id back to the queue.
+  await removeFinishedStepJob(latest.id, latest.revision);
+  const resumed = await resumeDiscoveryRun(latest.id);
+  if (!resumed) {
+    const raced = await findActiveDiscoveryRun(retailerId);
+    if (raced) {
+      await enqueueCatalogueStep(raced.id, raced.revision, raced.retailerId);
+      return raced;
+    }
+    throw new CatalogueDiscoveryError(
+      "Could not resume catalogue discovery",
+      409,
+    );
+  }
+
+  await enqueueCatalogueStep(
+    resumed.id,
+    resumed.revision,
+    resumed.retailerId,
+  );
+  logger.info(
+    {
+      component: "catalogue-discovery",
+      retailerId,
+      runId: resumed.id,
+      revision: resumed.revision,
+      pagesProcessed: resumed.pagesProcessed,
+    },
+    "catalogue discovery resumed",
+  );
+  return resumed;
 }
 
 export interface CatalogueDiscoveryStepResult {
@@ -253,6 +329,7 @@ export async function processCatalogueDiscoveryStep(
     await enqueueCatalogueStep(
       run.id,
       advanced.revision,
+      run.retailerId,
       env.CATALOGUE_PAGE_DELAY_MS,
     );
   }

@@ -7,6 +7,7 @@ import {
 } from "@/modules/catalogue/discovery.repository";
 import {
   CatalogueDiscoveryError,
+  resumeCatalogueDiscovery,
   startCatalogueDiscovery,
 } from "@/modules/catalogue/discovery.service";
 import type { CatalogueDiscoveryRunRecord } from "@/modules/catalogue/discovery.repository";
@@ -33,6 +34,8 @@ export interface RetailerRunView {
   startedAt: string | null;
   finishedAt: string | null;
   createdAt: string;
+  /** True when a failed run can continue from its saved cursor. */
+  resumable: boolean;
 }
 
 export interface RetailerAdminView {
@@ -67,6 +70,7 @@ function toRunView(run: CatalogueDiscoveryRunRecord): RetailerRunView {
     startedAt: run.startedAt?.toISOString() ?? null,
     finishedAt: run.finishedAt?.toISOString() ?? null,
     createdAt: run.createdAt.toISOString(),
+    resumable: run.status === "FAILED" && run.cursor !== null,
   };
 }
 
@@ -217,6 +221,27 @@ export async function startRetailerCatalogueDiscovery(
     trigger: "MANUAL",
     forceRefresh: mode === "refresh",
   });
+
+  return {
+    ...toRunView(run),
+    catalogue: await getRetailerCatalogue(retailerId),
+  };
+}
+
+export async function resumeRetailerCatalogueDiscovery(retailerId: string) {
+  registerBuiltInAdapters();
+  const adapter = retailerRegistry.getById(retailerId);
+  if (!adapter) {
+    throw new CatalogueDiscoveryError(`Unknown retailer: ${retailerId}`, 404);
+  }
+  if (!adapter.catalogue) {
+    throw new CatalogueDiscoveryError(
+      `${adapter.name} does not support catalogue discovery. Use URL monitoring instead.`,
+      409,
+    );
+  }
+
+  const run = await resumeCatalogueDiscovery(retailerId);
 
   return {
     ...toRunView(run),

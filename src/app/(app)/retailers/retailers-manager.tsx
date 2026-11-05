@@ -112,7 +112,7 @@ export function RetailersManager({
 
   async function startDiscovery(
     retailer: RetailerAdminView,
-    mode: "initial" | "refresh",
+    mode: "initial" | "refresh" | "resume",
   ) {
     setPending(retailer.id);
     try {
@@ -133,9 +133,11 @@ export function RetailersManager({
         return;
       }
       toast.success(
-        data.run?.status === "RUNNING"
-          ? "Discovery is already running"
-          : "Catalogue discovery queued",
+        mode === "resume"
+          ? "Catalogue discovery resumed"
+          : data.run?.status === "RUNNING"
+            ? "Discovery is already running"
+            : "Catalogue discovery queued",
         {
           description:
             "Progress updates automatically. A large catalogue can take a while.",
@@ -187,6 +189,7 @@ export function RetailersManager({
             const run = retailer.latestRun;
             const active =
               run?.status === "QUEUED" || run?.status === "RUNNING";
+            const resumable = run?.status === "FAILED" && run.resumable;
             const progress = run ? runProgress(run) : null;
             const busy = pending === retailer.id;
             return (
@@ -285,26 +288,55 @@ export function RetailersManager({
                                 </SelectContent>
                               </Select>
                             </div>
-                            <Button
-                              size="sm"
-                              disabled={busy || active}
-                              onClick={() =>
-                                startDiscovery(
-                                  retailer,
-                                  retailer.lastSuccessfulRunAt
-                                    ? "refresh"
-                                    : "initial",
-                                )
-                              }
-                            >
-                              {busy
-                                ? "Starting…"
-                                : active
-                                  ? "Discovery running"
-                                  : retailer.lastSuccessfulRunAt
-                                    ? "Refresh now"
-                                    : "Start initial discovery"}
-                            </Button>
+                            {resumable ? (
+                              <>
+                                <Button
+                                  size="sm"
+                                  disabled={busy}
+                                  onClick={() =>
+                                    startDiscovery(retailer, "resume")
+                                  }
+                                >
+                                  {busy ? "Starting…" : "Resume discovery"}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={busy}
+                                  onClick={() =>
+                                    startDiscovery(
+                                      retailer,
+                                      retailer.lastSuccessfulRunAt
+                                        ? "refresh"
+                                        : "initial",
+                                    )
+                                  }
+                                >
+                                  Start over
+                                </Button>
+                              </>
+                            ) : (
+                              <Button
+                                size="sm"
+                                disabled={busy || active}
+                                onClick={() =>
+                                  startDiscovery(
+                                    retailer,
+                                    retailer.lastSuccessfulRunAt
+                                      ? "refresh"
+                                      : "initial",
+                                  )
+                                }
+                              >
+                                {busy
+                                  ? "Starting…"
+                                  : active
+                                    ? "Discovery running"
+                                    : retailer.lastSuccessfulRunAt
+                                      ? "Refresh now"
+                                      : "Start initial discovery"}
+                              </Button>
+                            )}
                             <Button asChild size="sm" variant="outline">
                               <Link
                                 href={`/catalogue?retailer=${encodeURIComponent(
@@ -383,6 +415,12 @@ export function RetailersManager({
                           {run.error ? (
                             <p className="text-xs text-destructive">
                               {run.error}
+                            </p>
+                          ) : null}
+                          {run.resumable ? (
+                            <p className="text-xs text-muted-foreground">
+                              This failed run can continue from its saved
+                              cursor.
                             </p>
                           ) : null}
                         </div>
