@@ -2,18 +2,28 @@
   "name": "provmon",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "npm run build:sdk && next dev",
+    "build": "npm run build:sdk && next build",
+    "build:sdk": "npm run build -w @provmon/retailer-plugin-sdk",
+    "dev:sdk": "npm run dev -w @provmon/retailer-plugin-sdk",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "npm run build:sdk && tsc --noEmit",
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "plugins:list": "tsx scripts/plugins.ts list",
+    "plugins:validate": "tsx scripts/plugins.ts validate",
+    "plugins:link-local": "tsx scripts/plugins.ts link-local",
+    "test": "npm run build:sdk && vitest run",
+    "test:watch": "npm run build:sdk && vitest"
   },
   "dependencies": {
+    "@provmon/retailer-plugin-sdk": "*",
     "@hookform/resolvers": "^7.0.6",
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
