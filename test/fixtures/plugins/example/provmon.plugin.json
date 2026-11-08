@@ -1,0 +1,31 @@
+{
+  "apiVersion": 1,
+  "id": "example",
+  "name": "Example Retailer",
+  "entry": "./index.js",
+  "supportedDomains": ["example-retailer.test"],
+  "currency": "GBP",
+  "minCheckIntervalMs": 60000,
+  "treatNotFoundAsOutOfStock": false,
+  "capabilities": ["url-monitoring", "catalogue-discovery"],
+  "limits": {
+    "maxCataloguePageItems": 10
+  },
+  "configuration": [
+    {
+      "key": "priceMinor",
+      "env": "EXAMPLE_PRICE_MINOR",
+      "default": 1234
+    },
+    {
+      "key": "requiredToken",
+      "env": "EXAMPLE_REQUIRED_TOKEN",
+      "required": true
+    },
+    {
+      "key": "secretToken",
+      "env": "EXAMPLE_SECRET_TOKEN",
+      "secret": true
+    }
+  ]
+}
