@@ -12,8 +12,8 @@ import { findInventoryItemForUser } from "@/modules/catalogue/inventory.reposito
 import { performListingCheck } from "@/modules/monitoring/service";
 import { sweepDueAlertListings } from "@/modules/monitoring/scheduler";
 import { createMonitoringWorker } from "@/modules/monitoring/worker";
-import { mockRetailerStore } from "@/modules/retailers/adapters/mock";
-import { mockProductUrl } from "@/modules/retailers/adapters/mock/types";
+import { mockRetailerStore } from "@/modules/retailers/testing/mock";
+import { mockProductUrl } from "@/modules/retailers/testing/mock/types";
 import { createTestUser, resetTestState } from "@test/helpers/integration";
 
 async function waitFor(

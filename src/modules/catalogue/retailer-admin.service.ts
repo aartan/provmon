@@ -1,5 +1,9 @@
 import { db } from "@/lib/db";
-import { registerBuiltInAdapters } from "@/modules/retailers/adapters";
+import {
+  ensureRetailerPluginsLoaded,
+  getPluginStatus,
+  listPluginStatuses,
+} from "@/modules/retailers/plugin";
 import { retailerRegistry } from "@/modules/retailers/core/retailer-registry";
 import {
   getRetailerCatalogue,
@@ -38,6 +42,12 @@ export interface RetailerRunView {
   resumable: boolean;
 }
 
+export type RetailerPluginStatus =
+  | "LOADED"
+  | "FAILED"
+  | "MISSING"
+  | "BUILT_IN";
+
 export interface RetailerAdminView {
   id: string;
   name: string;
@@ -50,6 +60,36 @@ export interface RetailerAdminView {
   productCount: number;
   inStockCount: number;
   latestRun: RetailerRunView | null;
+  pluginVersion: string | null;
+  pluginStatus: RetailerPluginStatus;
+  pluginError: string | null;
+  capabilities: string[];
+}
+
+function pluginFields(
+  retailerId: string,
+  adapterVersion?: string,
+): {
+  pluginVersion: string | null;
+  pluginStatus: RetailerPluginStatus;
+  pluginError: string | null;
+  capabilities: string[];
+} {
+  const status = getPluginStatus(retailerId);
+  if (!status) {
+    return {
+      pluginVersion: adapterVersion ?? null,
+      pluginStatus: adapterVersion ? "LOADED" : "BUILT_IN",
+      pluginError: null,
+      capabilities: [],
+    };
+  }
+  return {
+    pluginVersion: status.version ?? adapterVersion ?? null,
+    pluginStatus: status.status === "LOADED" ? "LOADED" : "FAILED",
+    pluginError: status.error,
+    capabilities: status.capabilities,
+  };
 }
 
 function toRunView(run: CatalogueDiscoveryRunRecord): RetailerRunView {
@@ -75,7 +115,7 @@ function toRunView(run: CatalogueDiscoveryRunRecord): RetailerRunView {
 }
 
 export async function listRetailerAdminViews(): Promise<RetailerAdminView[]> {
-  registerBuiltInAdapters();
+  await ensureRetailerPluginsLoaded();
 
   const [counts, catalogues, latestRuns] = await Promise.all([
     db.retailerListing.groupBy({
@@ -131,6 +171,7 @@ export async function listRetailerAdminViews(): Promise<RetailerAdminView[]> {
       productCount: count?.total ?? 0,
       inStockCount: count?.inStock ?? 0,
       latestRun: latestRun ? toRunView(latestRun) : null,
+      ...pluginFields(adapter.id, adapter.version),
     });
   }
 
@@ -142,11 +183,20 @@ export async function listRetailerAdminViews(): Promise<RetailerAdminView[]> {
     }
     const catalogue = catalogueByRetailer.get(retailerId);
     const latestRun = runByRetailer.get(retailerId);
+    const status = getPluginStatus(retailerId);
+    const plugin = status
+      ? pluginFields(retailerId)
+      : {
+          pluginVersion: null,
+          pluginStatus: "MISSING" as const,
+          pluginError: "Plugin is not installed or did not load",
+          capabilities: [],
+        };
     views.push({
       id: retailerId,
-      name: retailerId,
+      name: status?.name ?? retailerId,
       currency: "GBP",
-      supportsCatalogue: false,
+      supportsCatalogue: plugin.capabilities.includes("catalogue-discovery"),
       discoveryEnabled: catalogue?.discoveryEnabled ?? false,
       refreshIntervalHours: catalogue?.refreshIntervalHours ?? 24,
       nextRefreshAt: catalogue?.nextRefreshAt?.toISOString() ?? null,
@@ -155,6 +205,34 @@ export async function listRetailerAdminViews(): Promise<RetailerAdminView[]> {
       productCount: count.total,
       inStockCount: count.inStock,
       latestRun: latestRun ? toRunView(latestRun) : null,
+      ...plugin,
+    });
+  }
+
+  // Surface failed plugins even when they have no persisted catalogue data.
+  for (const status of listPluginStatuses()) {
+    if (
+      status.status !== "FAILED" ||
+      !status.id ||
+      views.some((view) => view.id === status.id)
+    ) {
+      continue;
+    }
+    const catalogue = catalogueByRetailer.get(status.id);
+    views.push({
+      id: status.id,
+      name: status.name ?? status.id,
+      currency: "GBP",
+      supportsCatalogue: status.capabilities.includes("catalogue-discovery"),
+      discoveryEnabled: catalogue?.discoveryEnabled ?? false,
+      refreshIntervalHours: catalogue?.refreshIntervalHours ?? 24,
+      nextRefreshAt: catalogue?.nextRefreshAt?.toISOString() ?? null,
+      lastSuccessfulRunAt:
+        catalogue?.lastSuccessfulRunAt?.toISOString() ?? null,
+      productCount: 0,
+      inStockCount: 0,
+      latestRun: null,
+      ...pluginFields(status.id),
     });
   }
 
@@ -168,7 +246,7 @@ export async function updateRetailerDiscoverySettings(
     refreshIntervalHours?: number;
   },
 ): Promise<RetailerAdminView> {
-  registerBuiltInAdapters();
+  await ensureRetailerPluginsLoaded();
   const adapter = retailerRegistry.getById(retailerId);
   if (!adapter) {
     throw new CatalogueDiscoveryError(`Unknown retailer: ${retailerId}`, 404);
@@ -204,7 +282,7 @@ export async function startRetailerCatalogueDiscovery(
   retailerId: string,
   mode: "initial" | "refresh" = "refresh",
 ) {
-  registerBuiltInAdapters();
+  await ensureRetailerPluginsLoaded();
   const adapter = retailerRegistry.getById(retailerId);
   if (!adapter) {
     throw new CatalogueDiscoveryError(`Unknown retailer: ${retailerId}`, 404);
@@ -229,7 +307,7 @@ export async function startRetailerCatalogueDiscovery(
 }
 
 export async function resumeRetailerCatalogueDiscovery(retailerId: string) {
-  registerBuiltInAdapters();
+  await ensureRetailerPluginsLoaded();
   const adapter = retailerRegistry.getById(retailerId);
   if (!adapter) {
     throw new CatalogueDiscoveryError(`Unknown retailer: ${retailerId}`, 404);

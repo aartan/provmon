@@ -6,6 +6,7 @@ import { connection } from "next/server";
 import { auth } from "@/auth";
 import { isCatalogueAdmin } from "@/modules/catalogue/admin";
 import { listRetailerAdminViews } from "@/modules/catalogue/retailer-admin.service";
+import { listPluginStatuses } from "@/modules/retailers/plugin";
 import { RetailersManager } from "@/app/(app)/retailers/retailers-manager";
 
 export const metadata: Metadata = {
@@ -44,6 +45,7 @@ async function RetailersContent() {
   return (
     <RetailersManager
       retailers={retailers}
+      plugins={listPluginStatuses()}
       canManage={isCatalogueAdmin(session.user.email)}
     />
   );

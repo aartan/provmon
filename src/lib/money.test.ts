@@ -69,7 +69,7 @@ describe("parsePriceToMinor", () => {
     expect(parsePriceToMinor("-5.00")).toBeNull();
   });
 
-  it("rejects cash converters missing-price sentinels", () => {
+  it("rejects retailer missing-price sentinels", () => {
     expect(parsePriceToMinor("999999999900")).toBeNull();
   });
 

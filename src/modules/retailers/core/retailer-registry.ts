@@ -9,8 +9,8 @@ export function normalizeHostname(hostname: string): string {
 
 /**
  * True when `hostname` equals `supported` or is a subdomain of it:
- * "www.cashconverters.co.uk" matches "cashconverters.co.uk", while
- * "fakecashconverters.co.uk" does not.
+ * "www.shop.example" matches "shop.example", while
+ * "fakeshop.example" does not.
  */
 export function hostnameMatches(hostname: string, supported: string): boolean {
   const host = normalizeHostname(hostname);
@@ -19,9 +19,10 @@ export function hostnameMatches(hostname: string, supported: string): boolean {
 }
 
 /**
- * Registry of retailer adapters. Adapters register themselves in
- * `src/modules/retailers/adapters/index.ts`; the monitoring engine and the
- * resolver look adapters up here and never import adapter modules directly.
+ * Registry of retailer adapters. External plugins are loaded and
+ * registered by `ensureRetailerPluginsLoaded()`; tests may register an
+ * in-process fixture directly. The monitoring engine, catalogue importer
+ * and resolver look adapters up here and never import retailer code.
  */
 export class RetailerRegistry {
   private readonly adaptersById = new Map<string, RetailerAdapter>();
@@ -87,9 +88,8 @@ export class RetailerRegistry {
 }
 
 /**
- * Shared registry instance for the application. Built-in adapters are
- * registered by `registerBuiltInAdapters()` from
- * `src/modules/retailers/adapters/index.ts`, which is idempotent and safe
- * to call from the web process and the worker.
+ * Shared registry instance for the application. Configured plugins are
+ * registered by `ensureRetailerPluginsLoaded()`, which is idempotent and
+ * safe to call from the web process and the worker.
  */
 export const retailerRegistry = new RetailerRegistry();

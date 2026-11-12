@@ -124,7 +124,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     patch.condition = body.condition;
   }
   if (body.intervalMinutes !== undefined) {
-    const allowed = intervalOptionsForRetailer(
+    const allowed = await intervalOptionsForRetailer(
       result.subscription.product.retailerId,
     );
     if (!allowed.includes(body.intervalMinutes)) {

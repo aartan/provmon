@@ -4,7 +4,7 @@ import { Worker, type Job } from "bullmq";
 import { logger } from "@/lib/logger";
 import { MONITOR_QUEUE } from "@/lib/queue";
 import { redis } from "@/lib/redis";
-import { registerBuiltInAdapters } from "@/modules/retailers/adapters";
+import { ensureRetailerPluginsLoaded } from "@/modules/retailers";
 import { ensureSweepRepeatJob, sweepDueChecks, triggerSweepNow } from "@/modules/monitoring/scheduler";
 import { processListingCheckJob } from "@/modules/monitoring/service";
 import { CHECK_JOB_NAME, SWEEP_JOB_NAME, type CheckJobData } from "@/modules/monitoring/types";
@@ -62,7 +62,7 @@ export async function startInProcessWorker(): Promise<Worker | null> {
     log.info("worker disabled via WORKER_ENABLED=false");
     return null;
   }
-  registerBuiltInAdapters();
+  await ensureRetailerPluginsLoaded();
   const worker = createMonitoringWorker();
   await ensureSweepRepeatJob();
   await triggerSweepNow();

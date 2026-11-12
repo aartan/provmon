@@ -25,20 +25,12 @@ const envSchema = z.object({
   EMAIL_FROM: z.string().default(""),
   DEV_SMTP_HOST: z.string().default("localhost"),
   DEV_SMTP_PORT: z.coerce.number().int().positive().default(1025),
-  CASHCONVERTERS_API_URL: z
-    .string()
-    .url()
-    .default("https://www.cashconverters.co.uk/c3api"),
-  CEX_API_URL: z.string().url().default("https://search.webuy.io"),
-  // Public, read-only Algolia search credentials that uk.webuy.com embeds
-  // in every visitor's browser. They are not secrets: they grant search
-  // access only, the same permissions the retailer's own site exposes.
-  CEX_ALGOLIA_APPLICATION_ID: z.string().min(1).default("LNNFEEWZVA"),
-  CEX_ALGOLIA_API_KEY: z
-    .string()
-    .min(1)
-    .default("bf79f2b6699e60a18ae330a1248b452c"),
-  CEX_ALGOLIA_INDEX: z.string().min(1).default("prod_cex_uk"),
+  // Directory containing external retailer plugin packages. Each plugin
+  // declares its own environment variables in provmon.plugin.json.
+  PROVMON_PLUGIN_DIR: z.string().default("plugins"),
+  // Optional comma-separated allowlist of plugin package names, overriding
+  // the plugins/provmon.plugins.json list.
+  PROVMON_PLUGINS: z.string().default(""),
   // Delay between catalogue discovery pages. The public retailer APIs rate
   // limit bursts, so discovery yields between page jobs.
   CATALOGUE_PAGE_DELAY_MS: z.coerce.number().int().nonnegative().default(500),

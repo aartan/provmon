@@ -9,7 +9,7 @@ import {
   listCatalogueRetailers,
 } from "@/modules/catalogue/browse.repository";
 import { ensureInventoryItem } from "@/modules/catalogue/inventory.repository";
-import { registerBuiltInAdapters } from "@/modules/retailers/adapters";
+import { registerTestMockRetailer } from "@/modules/retailers/testing";
 import {
   createTestListing,
   createTestUser,
@@ -67,7 +67,7 @@ async function seedCatalogue() {
 describe("catalogue browsing (integration)", () => {
   beforeEach(async () => {
     await resetTestState();
-    registerBuiltInAdapters();
+    registerTestMockRetailer();
   });
 
   afterAll(async () => {

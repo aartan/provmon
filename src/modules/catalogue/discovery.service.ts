@@ -1,7 +1,7 @@
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { catalogueQueue } from "@/lib/queue";
-import { registerBuiltInAdapters } from "@/modules/retailers/adapters";
+import { ensureRetailerPluginsLoaded } from "@/modules/retailers";
 import { retailerRegistry } from "@/modules/retailers/core/retailer-registry";
 import {
   advanceDiscoveryRun,
@@ -52,8 +52,8 @@ export class CatalogueDiscoveryError extends Error {
   }
 }
 
-export function catalogueAdapter(retailerId: string) {
-  registerBuiltInAdapters();
+export async function catalogueAdapter(retailerId: string) {
+  await ensureRetailerPluginsLoaded();
   const adapter = retailerRegistry.getById(retailerId);
   if (!adapter) {
     throw new CatalogueDiscoveryError(`Unknown retailer: ${retailerId}`, 404);
@@ -118,7 +118,7 @@ async function removeFinishedStepJob(
 export async function startCatalogueDiscovery(
   input: StartCatalogueDiscoveryInput,
 ): Promise<CatalogueDiscoveryRunRecord> {
-  catalogueAdapter(input.retailerId);
+  await catalogueAdapter(input.retailerId);
 
   const active = await findActiveDiscoveryRun(input.retailerId);
   if (active) {
@@ -151,7 +151,7 @@ export async function startCatalogueDiscovery(
 export async function resumeCatalogueDiscovery(
   retailerId: string,
 ): Promise<CatalogueDiscoveryRunRecord> {
-  catalogueAdapter(retailerId);
+  await catalogueAdapter(retailerId);
 
   const active = await findActiveDiscoveryRun(retailerId);
   if (active) {
@@ -227,7 +227,7 @@ export async function processCatalogueDiscoveryStep(
     return { runId, status: "SKIPPED" };
   }
 
-  const adapter = catalogueAdapter(run.retailerId);
+  const adapter = await catalogueAdapter(run.retailerId);
   const discovery = adapter.catalogue;
   if (!discovery) {
     throw new CatalogueDiscoveryError(

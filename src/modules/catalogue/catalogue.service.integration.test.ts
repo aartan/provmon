@@ -6,7 +6,7 @@ import {
   addCatalogueListingsToMonitoring,
   CatalogueServiceError,
 } from "@/modules/catalogue/catalogue.service";
-import { registerBuiltInAdapters } from "@/modules/retailers/adapters";
+import { registerTestMockRetailer } from "@/modules/retailers/testing";
 import {
   createTestListing,
   createTestUser,
@@ -16,7 +16,7 @@ import {
 describe("catalogue bulk actions (integration)", () => {
   beforeEach(async () => {
     await resetTestState();
-    registerBuiltInAdapters();
+    registerTestMockRetailer();
   });
 
   afterAll(async () => {

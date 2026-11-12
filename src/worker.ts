@@ -3,7 +3,11 @@ import "dotenv/config";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { redis } from "@/lib/redis";
-import { registerBuiltInAdapters } from "@/modules/retailers/adapters";
+import {
+  ensureRetailerPluginsLoaded,
+  shutdownRetailerPlugins,
+} from "@/modules/retailers";
+import { warnAboutMissingRetailerPlugins } from "@/modules/retailers/plugin/health";
 import { ensureSweepRepeatJob, triggerSweepNow } from "@/modules/monitoring/scheduler";
 import { createMonitoringWorker } from "@/modules/monitoring/worker";
 import {
@@ -21,7 +25,9 @@ async function main(): Promise<void> {
   const log = logger.child({ component: "worker-entry" });
   log.info({ env: env.NODE_ENV }, "worker starting");
 
-  registerBuiltInAdapters();
+  await ensureRetailerPluginsLoaded();
+  await warnAboutMissingRetailerPlugins();
+
   const worker = createMonitoringWorker();
   const catalogueWorker = createCatalogueWorker();
   await ensureSweepRepeatJob();
@@ -37,6 +43,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     log.info({ signal }, "worker shutting down");
     await Promise.all([worker.close(), catalogueWorker.close()]);
+    await shutdownRetailerPlugins();
     redis.disconnect();
     process.exit(0);
   };

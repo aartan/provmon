@@ -7,7 +7,7 @@ import {
 import { resolveRetailerUrl } from "@/modules/retailers/core/retailer-resolver";
 import { productDetailsSchema } from "@/modules/retailers/core/schemas";
 import type { ProductDetails } from "@/modules/retailers/core/types";
-import { registerBuiltInAdapters } from "@/modules/retailers/adapters";
+import { ensureRetailerPluginsLoaded } from "@/modules/retailers";
 
 /** User-facing product-fetch failure shared by inventory and monitoring. */
 export class ProductFetchError extends Error {
@@ -24,8 +24,10 @@ export interface ResolvedProductUrl {
 }
 
 /** Resolve a user-pasted URL to a registered adapter and canonical URL. */
-export function resolveProductUrl(rawUrl: string): ResolvedProductUrl {
-  registerBuiltInAdapters();
+export async function resolveProductUrl(
+  rawUrl: string,
+): Promise<ResolvedProductUrl> {
+  await ensureRetailerPluginsLoaded();
   try {
     const { adapter, parsed } = resolveRetailerUrl(rawUrl);
     return { adapter, url: parsed.url };
@@ -85,7 +87,7 @@ export async function fetchProductDetails(
 export async function fetchProductFromUrl(
   rawUrl: string,
 ): Promise<{ adapter: RetailerAdapter; details: ProductDetails }> {
-  const resolved = resolveProductUrl(rawUrl);
+  const resolved = await resolveProductUrl(rawUrl);
   const details = await fetchProductDetails(resolved.adapter, resolved.url);
   return { adapter: resolved.adapter, details };
 }

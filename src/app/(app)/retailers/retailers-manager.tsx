@@ -28,9 +28,11 @@ import type {
   RetailerAdminView,
   RetailerRunView,
 } from "@/modules/catalogue/retailer-admin.service";
+import type { PluginStatusRecord } from "@/modules/retailers/plugin";
 
 interface RetailersManagerProps {
   retailers: RetailerAdminView[];
+  plugins: PluginStatusRecord[];
   canManage: boolean;
 }
 
@@ -56,10 +58,14 @@ function runProgress(run: RetailerRunView): number | null {
 
 export function RetailersManager({
   retailers,
+  plugins,
   canManage,
 }: RetailersManagerProps) {
   const router = useRouter();
   const [pending, setPending] = useState<string | null>(null);
+  const pluginIssues = plugins.filter(
+    (plugin) => plugin.status === "FAILED" && !plugin.id,
+  );
   const hasActiveRun = retailers.some(
     (retailer) =>
       retailer.latestRun?.status === "QUEUED" ||
@@ -176,11 +182,31 @@ export function RetailersManager({
         </div>
       ) : null}
 
+      {pluginIssues.length > 0 ? (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm">
+          <p className="font-medium">Some retailer plugins could not load</p>
+          <ul className="mt-2 grid gap-1 text-muted-foreground">
+            {pluginIssues.map((plugin) => (
+              <li key={plugin.packageName}>
+                <code className="rounded bg-background px-1 py-0.5 text-xs">
+                  {plugin.packageName}
+                </code>{" "}
+                — {plugin.error ?? "Unknown plugin error"}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {retailers.length === 0 ? (
         <div className="rounded-xl border border-dashed p-10 text-center">
-          <h2 className="text-lg font-medium">No retailer adapters found</h2>
+          <h2 className="text-lg font-medium">No retailer plugins found</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Register a retailer adapter to make its catalogue available.
+            Install a retailer plugin package and list it in{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-xs">
+              plugins/provmon.plugins.json
+            </code>
+            . See the plugin development guide.
           </p>
         </div>
       ) : (
@@ -192,6 +218,9 @@ export function RetailersManager({
             const resumable = run?.status === "FAILED" && run.resumable;
             const progress = run ? runProgress(run) : null;
             const busy = pending === retailer.id;
+            const pluginUnavailable =
+              retailer.pluginStatus === "FAILED" ||
+              retailer.pluginStatus === "MISSING";
             return (
               <Card key={retailer.id}>
                 <CardHeader>
@@ -204,6 +233,16 @@ export function RetailersManager({
                         ) : (
                           <Badge variant="outline">URL monitoring only</Badge>
                         )}
+                        {retailer.pluginVersion ? (
+                          <Badge variant="outline">
+                            plugin v{retailer.pluginVersion}
+                          </Badge>
+                        ) : null}
+                        {retailer.pluginStatus === "FAILED" ? (
+                          <Badge variant="destructive">Plugin failed</Badge>
+                        ) : retailer.pluginStatus === "MISSING" ? (
+                          <Badge variant="destructive">Plugin missing</Badge>
+                        ) : null}
                         {retailer.discoveryEnabled ? (
                           <Badge variant="secondary">Scheduled</Badge>
                         ) : null}
@@ -217,6 +256,11 @@ export function RetailersManager({
                             )} ago`
                           : " · no successful discovery yet"}
                       </CardDescription>
+                      {retailer.pluginError ? (
+                        <p className="mt-1 text-xs text-destructive">
+                          {retailer.pluginError}
+                        </p>
+                      ) : null}
                     </div>
                     {canManage && retailer.supportsCatalogue ? (
                       <div className="flex items-center gap-2">
@@ -229,7 +273,7 @@ export function RetailersManager({
                         <Switch
                           id={`discovery-${retailer.id}`}
                           checked={retailer.discoveryEnabled}
-                          disabled={busy}
+                          disabled={busy || pluginUnavailable}
                           onCheckedChange={(checked) =>
                             patchRetailer(retailer, {
                               discoveryEnabled: checked,
@@ -257,7 +301,7 @@ export function RetailersManager({
                               </Label>
                               <Select
                                 value={String(retailer.refreshIntervalHours)}
-                                disabled={busy}
+                                disabled={busy || pluginUnavailable}
                                 onValueChange={(value) =>
                                   patchRetailer(retailer, {
                                     refreshIntervalHours: Number(value),
@@ -292,7 +336,7 @@ export function RetailersManager({
                               <>
                                 <Button
                                   size="sm"
-                                  disabled={busy}
+                                  disabled={busy || pluginUnavailable}
                                   onClick={() =>
                                     startDiscovery(retailer, "resume")
                                   }
@@ -302,7 +346,7 @@ export function RetailersManager({
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  disabled={busy}
+                                  disabled={busy || pluginUnavailable}
                                   onClick={() =>
                                     startDiscovery(
                                       retailer,
@@ -318,7 +362,7 @@ export function RetailersManager({
                             ) : (
                               <Button
                                 size="sm"
-                                disabled={busy || active}
+                                disabled={busy || active || pluginUnavailable}
                                 onClick={() =>
                                   startDiscovery(
                                     retailer,

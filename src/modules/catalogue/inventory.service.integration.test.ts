@@ -11,8 +11,8 @@ import {
   removeInventoryItemForUser,
 } from "@/modules/catalogue/inventory.repository";
 import { archiveSubscription } from "@/modules/monitoring/repository";
-import { mockRetailerStore } from "@/modules/retailers/adapters/mock";
-import { mockProductUrl } from "@/modules/retailers/adapters/mock/types";
+import { mockRetailerStore } from "@/modules/retailers/testing/mock";
+import { mockProductUrl } from "@/modules/retailers/testing/mock/types";
 import { createTestUser, resetTestState } from "@test/helpers/integration";
 
 describe("inventory service (integration)", () => {

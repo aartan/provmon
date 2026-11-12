@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { isCatalogueAdmin } from "@/modules/catalogue/admin";
 import { listRetailerAdminViews } from "@/modules/catalogue/retailer-admin.service";
+import { listPluginStatuses } from "@/modules/retailers/plugin";
 
 /** Retailer discovery configuration, counts, and latest run status. */
 export async function GET() {
@@ -14,6 +15,7 @@ export async function GET() {
   const retailers = await listRetailerAdminViews();
   return NextResponse.json({
     retailers,
+    plugins: listPluginStatuses(),
     canManage: isCatalogueAdmin(session.user.email),
   });
 }

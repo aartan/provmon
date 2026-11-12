@@ -5,7 +5,7 @@ import {
   listRetailerAdminViews,
   updateRetailerDiscoverySettings,
 } from "@/modules/catalogue/retailer-admin.service";
-import { registerBuiltInAdapters } from "@/modules/retailers/adapters";
+import { registerTestMockRetailer } from "@/modules/retailers/testing";
 import {
   createTestListing,
   resetTestState,
@@ -14,7 +14,7 @@ import {
 describe("retailer discovery management (integration)", () => {
   beforeEach(async () => {
     await resetTestState();
-    registerBuiltInAdapters();
+    registerTestMockRetailer();
   });
 
   afterAll(async () => {

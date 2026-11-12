@@ -1,8 +1,8 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { db } from "@/lib/db";
-import { mockRetailer, mockRetailerStore } from "@/modules/retailers/adapters/mock";
-import { mockProductUrl } from "@/modules/retailers/adapters/mock/types";
+import { mockRetailer, mockRetailerStore } from "@/modules/retailers/testing/mock";
+import { mockProductUrl } from "@/modules/retailers/testing/mock/types";
 import { RetailerNetworkError } from "@/modules/retailers/core/errors";
 import {
   addMonitoringSubscription,

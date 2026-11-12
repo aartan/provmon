@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { MockRetailerAdapter } from "@/modules/retailers/adapters/mock/adapter";
-import { createMockStore } from "@/modules/retailers/adapters/mock/store";
+import { MockRetailerAdapter } from "@/modules/retailers/testing/mock/adapter";
+import { createMockStore } from "@/modules/retailers/testing/mock/store";
 import {
   hostnameMatches,
   normalizeHostname,

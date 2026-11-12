@@ -1,41 +1,16 @@
-import { z } from "zod";
-
-import { AVAILABILITY_STATUSES } from "@/modules/retailers/core/types";
-
 /**
- * Zod schemas for the normalised shapes. The monitoring engine validates
- * every adapter result against these schemas before persisting anything,
- * so a buggy adapter can never corrupt the database with retailer-shaped
- * data.
+ * Zod schemas for normalised retailer shapes. The canonical definitions
+ * live in `@provmon/retailer-plugin-sdk`; re-exported here to keep core
+ * imports stable.
  */
 
-export const availabilityStatusSchema = z.enum(AVAILABILITY_STATUSES);
-
-export const parsedProductUrlSchema = z.object({
-  retailerProductId: z.string().min(1).optional(),
-  url: z.string().url(),
-});
-
-export const productDetailsSchema = z.object({
-  retailerId: z.string().min(1),
-  retailerProductId: z.string().min(1).optional(),
-  sku: z.string().min(1).optional(),
-  gtin: z.string().min(1).optional(),
-  mpn: z.string().min(1).optional(),
-  brand: z.string().min(1).optional(),
-  model: z.string().min(1).optional(),
-  category: z.string().min(1).optional(),
-  name: z.string().min(1),
-  url: z.string().url(),
-  imageUrl: z.union([z.string().url(), z.literal("")]).optional(),
-  currency: z
-    .string()
-    .regex(/^[A-Z]{3}$/, "currency must be an ISO 4217 code"),
-  priceMinor: z.number().int().nonnegative().optional(),
-  originalPriceMinor: z.number().int().nonnegative().optional(),
-  discountPct: z.number().int().min(0).max(100).optional(),
-  availability: availabilityStatusSchema,
-  lastUpdated: z.date(),
-});
-
-export type ValidatedProductDetails = z.infer<typeof productDetailsSchema>;
+export {
+  availabilityStatusSchema,
+  catalogueDiscoveryPageEnvelopeSchema,
+  catalogueDiscoveryPageSchema,
+  httpUrlSchema,
+  parsedProductUrlSchema,
+  productDetailsSchema,
+  retailerPluginManifestSchema,
+  type ValidatedProductDetails,
+} from "@provmon/retailer-plugin-sdk";

@@ -25,8 +25,8 @@ import {
   listRetailerAdminViews,
   updateRetailerDiscoverySettings,
 } from "@/modules/catalogue/retailer-admin.service";
-import { registerBuiltInAdapters } from "@/modules/retailers/adapters";
-import { mockRetailerStore } from "@/modules/retailers/adapters/mock";
+import { registerTestMockRetailer } from "@/modules/retailers/testing";
+import { mockRetailerStore } from "@/modules/retailers/testing/mock";
 import type { ProductDetails } from "@/modules/retailers/core/types";
 import {
   createTestUser,
@@ -332,7 +332,7 @@ describe("catalogue discovery run (integration)", () => {
   beforeEach(async () => {
     await resetTestState();
     mockRetailerStore.clear();
-    registerBuiltInAdapters();
+    registerTestMockRetailer();
   });
 
   afterAll(async () => {

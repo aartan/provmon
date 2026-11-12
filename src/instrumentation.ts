@@ -9,11 +9,20 @@ export async function register() {
     return;
   }
   if (process.env.NEXT_RUNTIME === "nodejs") {
-    const [{ startInProcessWorker }, { startCatalogueWorker }] =
-      await Promise.all([
-        import("@/modules/monitoring/worker"),
-        import("@/modules/catalogue/discovery.worker"),
-      ]);
+    const [
+      { ensureRetailerPluginsLoaded },
+      { warnAboutMissingRetailerPlugins },
+      { startInProcessWorker },
+      { startCatalogueWorker },
+    ] = await Promise.all([
+      import("@/modules/retailers"),
+      import("@/modules/retailers/plugin/health"),
+      import("@/modules/monitoring/worker"),
+      import("@/modules/catalogue/discovery.worker"),
+    ]);
+
+    await ensureRetailerPluginsLoaded();
+    await warnAboutMissingRetailerPlugins();
     await Promise.all([startInProcessWorker(), startCatalogueWorker()]);
   }
 }

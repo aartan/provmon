@@ -17,8 +17,8 @@ import {
 /**
  * High-volume catalogue importer.
  *
- * Daily discovery pages can contain 1,000 products, and the full CeX
- * catalogue is hundreds of thousands of listings. Per-product Prisma calls
+ * Daily discovery pages can contain thousands of products, and the
+ * largest catalogues contain hundreds of thousands of listings. Per-product Prisma calls
  * would make the initial scan impractically slow, so this module batches
  * identifier lookups, canonical creation, listing creation, current-state
  * updates, and observation inserts.

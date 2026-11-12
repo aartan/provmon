@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { auth } from "@/auth";
 import { logger } from "@/lib/logger";
-import { registerBuiltInAdapters } from "@/modules/retailers/adapters";
+import { ensureRetailerPluginsLoaded } from "@/modules/retailers";
 import { resolveRetailerUrl } from "@/modules/retailers/core/retailer-resolver";
 import { productDetailsSchema } from "@/modules/retailers/core/schemas";
 import { intervalOptionsForRetailer } from "@/modules/monitoring/service";
@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  registerBuiltInAdapters();
+  await ensureRetailerPluginsLoaded();
 
   let body: z.infer<typeof bodySchema>;
   try {
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
         priceMinor: validated.priceMinor ?? null,
         availability: validated.availability,
       },
-      intervalOptions: intervalOptionsForRetailer(adapter.id),
+      intervalOptions: await intervalOptionsForRetailer(adapter.id),
     });
   } catch (error) {
     logger.warn({ component: "api", err: error }, "product preview failed");

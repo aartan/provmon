@@ -5,11 +5,12 @@ import type {
 import type { CatalogueDiscovery } from "@/modules/retailers/core/catalogue";
 
 /**
- * The contract every retailer integration implements.
+ * The contract every retailer integration implements inside ProvMon.
  *
- * The monitoring engine only ever talks to retailers through this
- * interface. Adding a retailer means implementing this interface and
- * registering the adapter — no core changes.
+ * Plugin packages implement the same operations through the plugin SDK;
+ * `PluginRetailerAdapter` wraps a loaded plugin in this interface so the
+ * monitoring engine, catalogue importer and UI never know whether an
+ * adapter is a test fixture or an external plugin.
  *
  * `getProduct` is deliberately a single call per check: real retailers
  * expose price and availability from the same page or API response, so
@@ -17,10 +18,12 @@ import type { CatalogueDiscovery } from "@/modules/retailers/core/catalogue";
  * that must consult multiple retailer endpoints compose internally.
  */
 export interface RetailerAdapter {
-  /** Stable unique id, e.g. "mock", "cashconverters". */
+  /** Stable unique id, e.g. "mock", "example". */
   readonly id: string;
   /** Human-readable retailer name shown in the UI. */
   readonly name: string;
+  /** Plugin package version when this adapter comes from an external plugin. */
+  readonly version?: string;
   /** Hostnames this adapter claims (exact or subdomain matches). */
   readonly supportedDomains: string[];
   /**

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { MockRetailerAdapter } from "@/modules/retailers/adapters/mock/adapter";
-import { createMockStore } from "@/modules/retailers/adapters/mock/store";
-import { registerBuiltInAdapters } from "@/modules/retailers/adapters";
+import { MockRetailerAdapter } from "@/modules/retailers/testing/mock/adapter";
+import { createMockStore } from "@/modules/retailers/testing/mock/store";
+import { registerTestMockRetailer } from "@/modules/retailers/testing";
 import {
   InvalidProductUrlError,
   UnsupportedRetailerError,
@@ -76,11 +76,10 @@ describe("resolveRetailerUrl", () => {
   });
 });
 
-describe("registerBuiltInAdapters", () => {
+describe("registerTestMockRetailer", () => {
   it("registers the mock adapter with the shared registry exactly once", () => {
-    expect(retailerRegistry.has("mock")).toBe(false);
-    registerBuiltInAdapters();
-    registerBuiltInAdapters();
+    registerTestMockRetailer();
+    registerTestMockRetailer();
     expect(retailerRegistry.getById("mock")?.name).toBe("Mock Retailer");
   });
 });

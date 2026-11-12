@@ -206,7 +206,7 @@ export async function addCatalogueListingsToMonitoring(
     const existing = existingByListing.get(listingId);
     if (!existing || options.intervalMinutes !== undefined) {
       const requestedInterval = options.intervalMinutes ?? intervalMinutes;
-      const allowedIntervals = intervalOptionsForRetailer(listing.retailerId);
+      const allowedIntervals = await intervalOptionsForRetailer(listing.retailerId);
       if (!allowedIntervals.includes(requestedInterval)) {
         result.failed.push({
           listingId,

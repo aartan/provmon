@@ -1,7 +1,7 @@
 import type { Prisma } from "@/generated/prisma/client";
 import type { AvailabilityStatus } from "@/modules/retailers/core/types";
 import { db } from "@/lib/db";
-import { registerBuiltInAdapters } from "@/modules/retailers/adapters";
+import { ensureRetailerPluginsLoaded } from "@/modules/retailers";
 import { retailerRegistry } from "@/modules/retailers/core/retailer-registry";
 import {
   catalogueHistoryCutoff,
@@ -310,7 +310,7 @@ export async function browseCatalogue(
  * retailer management instead of hiding the retailer entirely.
  */
 export async function listCatalogueRetailers(): Promise<CatalogueRetailerSummary[]> {
-  registerBuiltInAdapters();
+  await ensureRetailerPluginsLoaded();
 
   const [counts, catalogues] = await Promise.all([
     db.retailerListing.groupBy({

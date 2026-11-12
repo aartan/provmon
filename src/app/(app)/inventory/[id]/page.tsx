@@ -70,8 +70,8 @@ async function InventoryItemContent({ params }: PageProps) {
     ]),
   );
 
-  const listings: InventoryListingView[] =
-    inventoryItem.canonicalProduct.listings.map((listing) => {
+  const listings: InventoryListingView[] = await Promise.all(
+    inventoryItem.canonicalProduct.listings.map(async (listing) => {
       const listingIntelligence = intelligenceByListing.get(listing.id);
       const subscription = listing.subscriptions[0] ?? null;
       return {
@@ -90,7 +90,9 @@ async function InventoryItemContent({ params }: PageProps) {
           currencyBest.get(listing.currency)?.bestCurrent?.listingId ===
           listing.id,
         windows: listingIntelligence?.windows ?? [],
-        intervalOptions: intervalOptionsForRetailer(listing.retailerId),
+        intervalOptions: await intervalOptionsForRetailer(
+          listing.retailerId,
+        ),
         subscription: subscription
           ? {
               id: subscription.id,
@@ -105,7 +107,8 @@ async function InventoryItemContent({ params }: PageProps) {
             }
           : null,
       };
-    });
+    }),
+  );
 
   return (
     <InventoryDetail

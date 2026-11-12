@@ -6,7 +6,7 @@ import {
   UnsupportedRetailerError,
 } from "@/modules/retailers/core/errors";
 import { retailerRegistry } from "@/modules/retailers/core/retailer-registry";
-import { registerBuiltInAdapters } from "@/modules/retailers/adapters";
+import { ensureRetailerPluginsLoaded } from "@/modules/retailers";
 import {
   findOrCreateListing,
   markListingChecked,
@@ -47,8 +47,10 @@ export class MonitoringServiceError extends Error {
 }
 
 /** Interval options (minutes) allowed for a retailer id. */
-export function intervalOptionsForRetailer(retailerId: string): number[] {
-  registerBuiltInAdapters();
+export async function intervalOptionsForRetailer(
+  retailerId: string,
+): Promise<number[]> {
+  await ensureRetailerPluginsLoaded();
   const adapter = retailerRegistry.getById(retailerId);
   const floorMs = adapter?.minCheckIntervalMs ?? 60_000;
   return INTERVAL_OPTIONS_MINUTES.filter((minutes) => minutes * 60_000 >= floorMs);
@@ -76,7 +78,7 @@ export async function addMonitoringSubscription(
   // can be checked without contacting the retailer.
   let resolved;
   try {
-    resolved = resolveProductUrl(input.url);
+    resolved = await resolveProductUrl(input.url);
   } catch (error) {
     if (error instanceof ProductFetchError) {
       throw new MonitoringServiceError(error.message);
@@ -455,7 +457,7 @@ export async function performListingCheck(
   options: PerformListingCheckOptions = {},
 ): Promise<ListingCheckRun> {
   const startedAt = Date.now();
-  registerBuiltInAdapters();
+  await ensureRetailerPluginsLoaded();
 
   const listing = await db.retailerListing.findUnique({
     where: { id: retailerListingId },

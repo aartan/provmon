@@ -5,8 +5,8 @@ import { redis } from "@/lib/redis";
  *
  * A 429 means every future request to that retailer should pause, not just
  * the job that happened to receive it. Cooldowns are therefore stored in
- * Redis under a key that contains the retailer id, so CeX can be cooling
- * down while Cash Converters continues normally.
+ * Redis under a key that contains the retailer id, so one retailer can be
+ * cooling down while another continues normally.
  */
 
 export const DEFAULT_CATALOGUE_COOLDOWN_MS = 60_000;

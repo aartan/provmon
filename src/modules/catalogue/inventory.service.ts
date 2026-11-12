@@ -128,7 +128,7 @@ export async function attachMonitoringToInventoryItem(
     );
   }
 
-  const allowedIntervals = intervalOptionsForRetailer(listing.retailerId);
+  const allowedIntervals = await intervalOptionsForRetailer(listing.retailerId);
   if (!allowedIntervals.includes(input.intervalMinutes)) {
     throw new InventoryServiceError(
       `Interval must be one of: ${allowedIntervals.join(", ")} minutes`,

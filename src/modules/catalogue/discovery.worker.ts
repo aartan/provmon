@@ -3,7 +3,7 @@ import { DelayedError, Worker, type Job } from "bullmq";
 import { logger } from "@/lib/logger";
 import { CATALOGUE_QUEUE } from "@/lib/queue";
 import { redis } from "@/lib/redis";
-import { registerBuiltInAdapters } from "@/modules/retailers/adapters";
+import { ensureRetailerPluginsLoaded } from "@/modules/retailers";
 import { RetailerRateLimitedError } from "@/modules/retailers/core/errors";
 import { findDiscoveryRun } from "@/modules/catalogue/discovery.repository";
 import {
@@ -134,7 +134,7 @@ export async function startCatalogueWorker(): Promise<Worker | null> {
     log.info("catalogue worker disabled via WORKER_ENABLED=false");
     return null;
   }
-  registerBuiltInAdapters();
+  await ensureRetailerPluginsLoaded();
   const worker = createCatalogueWorker();
   await ensureCatalogueSweepRepeatJob();
   await triggerCatalogueSweepNow();

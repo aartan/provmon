@@ -11,7 +11,7 @@ import {
   getCatalogueListingHistory,
 } from "@/modules/catalogue/browse.repository";
 import { intervalOptionsForRetailer } from "@/modules/monitoring/service";
-import { registerBuiltInAdapters } from "@/modules/retailers/adapters";
+import { ensureRetailerPluginsLoaded } from "@/modules/retailers";
 import { retailerRegistry } from "@/modules/retailers/core/retailer-registry";
 import { CatalogueDetail } from "@/app/(app)/catalogue/[id]/catalogue-detail";
 
@@ -61,8 +61,9 @@ async function CatalogueProductContent({ params }: PageProps) {
     notFound();
   }
 
-  registerBuiltInAdapters();
+  await ensureRetailerPluginsLoaded();
   const adapter = retailerRegistry.getById(listing.retailerId);
+  const intervalOptions = await intervalOptionsForRetailer(listing.retailerId);
 
   return (
     <div className="grid gap-4">
@@ -84,7 +85,7 @@ async function CatalogueProductContent({ params }: PageProps) {
           name: adapter?.name ?? listing.retailerId,
         }}
         initialHistory={history}
-        intervalOptions={intervalOptionsForRetailer(listing.retailerId)}
+        intervalOptions={intervalOptions}
       />
     </div>
   );
