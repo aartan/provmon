@@ -1,0 +1,28 @@
+{
+  "$schema": "https://provmon.dev/schemas/provmon.plugin.schema.json",
+  "apiVersion": 1,
+  "id": "example",
+  "name": "Example Retailer",
+  "entry": "./dist/index.js",
+  "supportedDomains": ["example-retailer.test"],
+  "currency": "GBP",
+  "minCheckIntervalMs": 60000,
+  "treatNotFoundAsOutOfStock": false,
+  "capabilities": ["url-monitoring", "catalogue-discovery"],
+  "limits": {
+    "maxCataloguePageItems": 100
+  },
+  "configuration": [
+    {
+      "key": "apiUrl",
+      "env": "EXAMPLE_API_URL",
+      "default": "https://api.example-retailer.test"
+    },
+    {
+      "key": "apiKey",
+      "env": "EXAMPLE_API_KEY",
+      "required": true,
+      "secret": true
+    }
+  ]
+}

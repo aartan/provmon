@@ -11,7 +11,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "examples/**/*.test.ts"],
     globalSetup: ["test/setup/global-setup.ts"],
     setupFiles: ["test/setup/setup-env.ts"],
     // Integration tests share one database and Redis instance.
