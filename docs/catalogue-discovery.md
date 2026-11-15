@@ -22,7 +22,7 @@ independently.
 | `ListingObservation` | Append-only shared price/availability history. Unchanged observations extend a price level's duration; they are not independent price changes. |
 | `InventoryItem` | User-owned membership in the catalogue. One row per user + canonical product. |
 | `MonitoringSubscription` | User-owned monitoring condition for one retailer listing. |
-| `RetailerCatalogue` | Global discovery configuration for one adapter id: enabled flag, refresh interval, next refresh, last successful run. |
+| `RetailerCatalogue` | Global discovery configuration for one retailer id: enabled flag, refresh interval, next refresh, last successful run. |
 | `CatalogueDiscoveryRun` | One resumable discovery/refresh run: cursor, revision, progress counters, status, and error. |
 
 `RetailerListing` is the unit of catalogue browsing and detail pages. The
@@ -36,8 +36,8 @@ the same product collapse into one inventory item.
 
 1. Start a run (`INITIAL` when the retailer has never completed a run,
    otherwise `REFRESH`) or return the retailer's already-active run.
-2. A BullMQ job processes exactly one adapter page.
-3. The adapter returns normalised `ProductDetails` plus an opaque `nextCursor`.
+2. A BullMQ job processes exactly one plugin catalogue page.
+3. The plugin returns normalised `ProductDetails` plus an opaque `nextCursor`.
 4. The importer:
    - deduplicates products within the page;
    - resolves or creates canonical products in batches;
@@ -49,7 +49,7 @@ the same product collapse into one inventory item.
      unchanged and monitored products.
 5. The cursor, revision, and counters are saved atomically. The next page is
    queued after `CATALOGUE_PAGE_DELAY_MS`.
-6. When the adapter returns `nextCursor: null`, a `REFRESH` run marks
+6. When the plugin returns `nextCursor: null`, a `REFRESH` run marks
    catalogue-sourced listings not seen during the run as delisted.
 
 An active unique index on `(retailer_id)` for `QUEUED`/`RUNNING` runs prevents
@@ -66,7 +66,7 @@ the same cursor.
 - A 429 applies to the whole retailer, not just the page that received it.
   The worker stores a per-retailer cooldown in Redis, honours `Retry-After`
   when present, and delays the job without consuming an attempt until the
-  cooldown expires. CeX and Cash Converters cool down independently.
+  cooldown expires. Each retailer plugin cools down independently.
 - A failed run with a saved cursor can be resumed from the retailer page,
   preserving its cursor and counters instead of rescanning from the start.
 - Abandoned runs whose heartbeat is over an hour old are failed by the sweep,
@@ -76,11 +76,11 @@ the same cursor.
 
 ### Price safety
 
-Retailer payloads occasionally contain missing-price sentinels. Cash
-Converters uses `999999999900` for "no RRP". All adapter prices pass through a
-shared maximum of £10,000,000 in minor units, and the importer performs a
-final safe-integer check before writing. Out-of-range values are stored as
-`null`; they never abort an entire catalogue page.
+Retailer payloads occasionally contain missing-price sentinels. All plugin
+prices are validated against the shared maximum of £10,000,000 in minor units,
+and the importer performs a final safe-integer check before writing.
+Out-of-range values are stored as `null`; they never abort an entire
+catalogue page.
 
 
 ### Delisting and history
@@ -116,41 +116,20 @@ development, by `src/instrumentation.ts` when `WORKER_ENABLED` is not `false`.
 
 ## Retailer support
 
-Discovery is optional on `RetailerAdapter`:
+Catalogue discovery is an optional plugin capability:
 
 ```ts
-readonly catalogue?: CatalogueDiscovery;
+catalogue?: CatalogueDiscovery;
 ```
 
-Adapters without it remain available for URL monitoring and are shown as
-"URL monitoring only" in retailer management.
+Plugins without it remain available for URL monitoring and are shown as
+"URL monitoring only" in retailer management. The discovery contract,
+retailer-specific pagination logic, fixtures and tests live with the plugin
+package; core only persists the opaque cursor and imports normalised pages.
 
-### CeX
-
-Algolia caps any single query at 1,000 hits. The adapter therefore:
-
-- lists categories with a facet request and excludes service categories
-  (`Repairs`);
-- queries each category with a sell-price partition;
-- recursively bisects partitions above the cap;
-- for oversized exact-price buckets, splits by the `stores` facet;
-- when a bucket still cannot be split, imports the first page as best effort
-  and moves on.
-
-Duplicates introduced by overlapping store partitions are no-ops in the
-importer.
-
-### Cash Converters
-
-The public search API returns a fixed 24 items per page but supports deep
-pagination. The cursor is the next page number of an empty query, which
-returns the live catalogue. Sold products disappear from the API and are
-delisted by the next full refresh.
-
-### Mock
-
-The mock adapter exposes its controllable fixture store through the same
-catalogue contract. It is the end-to-end reference for development and tests.
+See [`plugin-architecture.md`](plugin-architecture.md) and
+[`plugin-development.md`](plugin-development.md) for the plugin contract and
+development workflow.
 
 ## Browsing and actions
 
@@ -202,8 +181,11 @@ authenticated user.
 | --- | --- | --- |
 | `CATALOGUE_PAGE_DELAY_MS` | `500` | Delay between discovery page jobs. |
 | `CATALOGUE_ADMIN_EMAILS` | empty | Optional management allowlist. |
-| `CEX_*` | public defaults | CeX API endpoint and public Algolia search credentials. |
-| `CASHCONVERTERS_API_URL` | public default | Cash Converters API endpoint. |
+| `PROVMON_PLUGIN_DIR` | `plugins` | Directory containing installed retailer plugin packages. |
+| `PROVMON_PLUGINS` | empty | Optional comma-separated plugin package allowlist. |
+
+Retailer-specific environment variables are declared by each plugin's
+`provmon.plugin.json`; see the plugin package documentation.
 
 The catalogue migration enables the `pg_trgm` extension for fast product
 search. The database user must be allowed to create that extension; on
@@ -224,18 +206,20 @@ Catalogue coverage lives next to the modules:
 - `retailer-admin.integration.test.ts` — management views, settings
   persistence, and validation.
 - `admin.test.ts` — allowlist semantics.
-- Adapter unit tests cover CeX partitioning and Cash Converters pagination.
+- Plugin packages run their own unit, fixture and contract tests; core does not
+  test retailer-specific parsing or pagination.
 
 The integration suite uses the dedicated test database and Redis database 1.
 Set `RESEND_API_KEY=''` when running locally so notification tests use
 Mailpit/SMTP instead of Resend.
 
-## Adding catalogue discovery to a retailer
+## Adding catalogue discovery to a plugin
 
-Implement `CatalogueDiscovery` and expose it as `adapter.catalogue`:
+Implement `CatalogueDiscovery` and expose it from the plugin instance as
+`catalogue`:
 
 ```ts
-readonly catalogue?: CatalogueDiscovery;
+catalogue?: CatalogueDiscovery;
 ```
 
 `fetchPage(cursor)` must be idempotent for a given cursor and return
@@ -243,3 +227,6 @@ normalised `ProductDetails`, the next opaque cursor (or `null`), and optionally
 a total estimate and progress. Keep page sizes modest, respect the retailer's
 rate limits, and partition any API that caps result counts. The importer,
 scheduler, UI, and monitoring engine need no changes.
+
+See [`plugin-development.md`](plugin-development.md) for the full plugin
+contract and the example plugin template.

@@ -18,14 +18,22 @@ comes back in stock or drops to your target price.
 
 ## Architecture
 
-Retailer integrations are isolated behind a common adapter interface in
-`src/modules/retailers`. The monitoring engine, scheduler, and notification
-rules only ever see normalised product data — adding a retailer means adding
-an adapter module and registering it, with no changes to core code.
+Retailer integrations are external plugins, not part of the core codebase.
+ProvMon discovers installed packages, validates their manifests and
+configuration, and adapts them to the internal retailer interface. The
+monitoring engine, catalogue importer and notification rules only ever see
+normalised product data.
 
-Discovery-capable adapters also implement the optional `CatalogueDiscovery`
-contract. Their products are imported into a shared catalogue with continuous
-price history; monitoring remains optional and per user. See
+A plugin is an npm package implementing
+[`@provmon/retailer-plugin-sdk`](packages/retailer-plugin-sdk) and shipping a
+`provmon.plugin.json` manifest. Plugins are loaded from the deployment-owned
+`plugins/` directory. See
+[`docs/plugin-architecture.md`](docs/plugin-architecture.md) and
+[`docs/plugin-development.md`](docs/plugin-development.md).
+
+Discovery-capable plugins expose the optional catalogue capability. Their
+products are imported into a shared catalogue with continuous price history;
+monitoring remains optional and per user. See
 [`docs/catalogue-discovery.md`](docs/catalogue-discovery.md) for the data
 model, schedules, discovery flow, and API.
 
@@ -67,14 +75,32 @@ npm run db:migrate # applies migrations (creates tables)
 npm run dev        # web app on http://localhost:3000
 ```
 
+### 5. Retailer plugins
+
+ProvMon ships without retailer integrations. Install the plugin packages you
+need into `plugins/`, list them in `plugins/provmon.plugins.json`, configure
+their declared environment variables, and restart:
+
+```bash
+npm run plugins:list
+npm run plugins:validate
+```
+
+See [`docs/plugin-development.md`](docs/plugin-development.md) for the plugin
+contract, template and installation workflow.
+
 ## Scripts
 
-| Command              | Purpose                          |
-| -------------------- | -------------------------------- |
-| `npm run dev`        | Dev server (Next.js)             |
-| `npm run build`      | Production build                 |
-| `npm run lint`       | ESLint                           |
-| `npm test`           | Vitest (single run)              |
-| `npm run test:watch` | Vitest (watch mode)              |
-| `npm run db:migrate` | Create/apply Prisma migrations   |
-| `npm run db:generate`| Regenerate the Prisma client     |
+| Command                    | Purpose                          |
+| -------------------------- | -------------------------------- |
+| `npm run dev`              | Dev server (Next.js)             |
+| `npm run build`            | Production build                 |
+| `npm run build:sdk`        | Build the plugin SDK workspace   |
+| `npm run lint`             | ESLint                           |
+| `npm run typecheck`        | TypeScript check (builds SDK first) |
+| `npm test`                 | Vitest (single run)              |
+| `npm run test:watch`       | Vitest (watch mode)              |
+| `npm run db:migrate`       | Create/apply Prisma migrations   |
+| `npm run db:generate`      | Regenerate the Prisma client     |
+| `npm run plugins:list`     | List installed retailer plugins  |
+| `npm run plugins:validate` | Validate manifests and plugin config |
