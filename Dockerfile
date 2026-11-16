@@ -4,7 +4,9 @@
 FROM docker.io/library/node:22-alpine AS deps
 WORKDIR /app
 # prisma generate runs during `npm ci` and needs the schema + config.
+# The workspace package manifest is needed before the source is copied.
 COPY package.json package-lock.json prisma7.config.ts tsconfig.json ./
+COPY packages/retailer-plugin-sdk/package.json ./packages/retailer-plugin-sdk/package.json
 COPY prisma ./prisma
 # Placeholder values: real connection details are injected at runtime via
 # the compose environment. Only needed so module validation passes.
@@ -28,7 +30,8 @@ RUN npm run build
 # ── Stage 3: runtime ──
 FROM docker.io/library/node:22-alpine AS runtime
 WORKDIR /app
-ENV NODE_ENV="production"
+ENV NODE_ENV="production" \
+    PROVMON_PLUGIN_DIR="/app/plugins"
 # The full dependency tree is intentional: the web service runs
 # `next start`, while the worker service runs the TypeScript entry point
 # through tsx (a devDependency).
@@ -39,9 +42,12 @@ COPY --from=build /app/tsconfig.json ./tsconfig.json
 COPY --from=build /app/prisma7.config.ts ./prisma7.config.ts
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/src ./src
+COPY --from=build /app/packages ./packages
 COPY --from=build /app/public ./public
 COPY --from=build /app/.next ./.next
-RUN chown -R node:node /app
+# Plugins are deployment-owned. Mount a directory here in production, or
+# install private plugin packages into it during the deployment build.
+RUN mkdir -p plugins && chown -R node:node /app
 USER node
 EXPOSE 3000
 CMD ["npm", "run", "start"]

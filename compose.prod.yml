@@ -26,12 +26,17 @@ services:
       # The standalone worker service runs the BullMQ worker and sweep
       WORKER_ENABLED: "false"
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      PROVMON_PLUGIN_DIR: /app/plugins
       CATALOGUE_PAGE_DELAY_MS: ${CATALOGUE_PAGE_DELAY_MS:-500}
       CATALOGUE_ADMIN_EMAILS: ${CATALOGUE_ADMIN_EMAILS:-}
       SNAPSHOT_INTERVAL_MINUTES: ${SNAPSHOT_INTERVAL_MINUTES:-1440}
       ALERT_CHECK_INTERVAL_MINUTES: ${ALERT_CHECK_INTERVAL_MINUTES:-1440}
     ports:
       - "3000:3000"
+    volumes:
+      # :z shares the SELinux label between the app and worker containers.
+      # Use :Z only when a single container mounts the directory.
+      - ./plugins:/app/plugins:ro,z
     depends_on:
       postgres:
         condition: service_healthy
@@ -46,6 +51,8 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     command: ["npx", "tsx", "src/worker.ts"]
+    volumes:
+      - ./plugins:/app/plugins:ro,z
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://provmon:provmon@postgres:5432/provmon
@@ -57,6 +64,7 @@ services:
       DEV_SMTP_HOST: mailpit
       DEV_SMTP_PORT: "1025"
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      PROVMON_PLUGIN_DIR: /app/plugins
       CATALOGUE_PAGE_DELAY_MS: ${CATALOGUE_PAGE_DELAY_MS:-500}
       CATALOGUE_ADMIN_EMAILS: ${CATALOGUE_ADMIN_EMAILS:-}
       SNAPSHOT_INTERVAL_MINUTES: ${SNAPSHOT_INTERVAL_MINUTES:-1440}

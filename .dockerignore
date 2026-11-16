@@ -2,6 +2,10 @@
 node_modules
 .next
 src/generated
+packages/*/dist
+
+# Retailer plugins are deployment-owned and mounted at runtime
+plugins
 
 # Secrets and local config never enter the image
 .env

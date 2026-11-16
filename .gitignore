@@ -43,3 +43,13 @@ next-env.d.ts
 
 # generated prisma client (regenerated via postinstall)
 /src/generated/
+
+# generated plugin SDK build output
+/packages/retailer-plugin-sdk/dist/
+
+# deployment-owned retailer plugin installs
+/plugins/node_modules/
+/plugins/package.json
+/plugins/package-lock.json
+/plugins/provmon.plugins.json
+!plugins/README.md
