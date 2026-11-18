@@ -109,6 +109,7 @@ async function DashboardContent() {
   const attention = subscriptions.filter(
     (s) => s.retailerListing.currentAvailability === "OUT_OF_STOCK",
   );
+  const hasMonitoredProducts = subscriptions.length > 0;
 
   return (
     <div className="grid gap-6">
@@ -161,7 +162,17 @@ async function DashboardContent() {
           <CardContent>
             {notifications.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No notifications yet. Add a product to get started.
+                {hasMonitoredProducts ? (
+                  "No notifications yet. Alerts will appear here when a monitoring rule triggers."
+                ) : (
+                  <>
+                    No notifications yet.{" "}
+                    <Link href="/inventory" className="underline underline-offset-4">
+                      Start monitoring a product
+                    </Link>{" "}
+                    to receive alerts.
+                  </>
+                )}
               </p>
             ) : (
               <ul className="grid gap-3">
@@ -190,13 +201,27 @@ async function DashboardContent() {
           <Card>
             <CardHeader>
               <CardTitle>Needs attention</CardTitle>
-              <CardDescription>Products currently out of stock.</CardDescription>
+              <CardDescription>
+                {hasMonitoredProducts
+                  ? "Products currently out of stock."
+                  : "Once you monitor a product, out-of-stock items will show up here."}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {attention.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Nothing waiting — every product is in stock or unknown.
-                </p>
+                hasMonitoredProducts ? (
+                  <p className="text-sm text-muted-foreground">
+                    Nothing waiting — every product is in stock or unknown.
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    You’re not monitoring any products yet.{" "}
+                    <Link href="/inventory" className="underline underline-offset-4">
+                      Pick a product from your inventory
+                    </Link>{" "}
+                    to start tracking its price and stock.
+                  </p>
+                )
               ) : (
                 <ul className="grid gap-3">
                   {attention.map((subscription) => (
@@ -225,7 +250,11 @@ async function DashboardContent() {
             </CardHeader>
             <CardContent>
               {recentChecks.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No checks run yet.</p>
+                <p className="text-sm text-muted-foreground">
+                  {hasMonitoredProducts
+                    ? "No checks run yet."
+                    : "No checks yet. Checks run automatically once you start monitoring a product."}
+                </p>
               ) : (
                 <ul className="grid gap-3">
                   {recentChecks.map((check) => (
