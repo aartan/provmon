@@ -49,5 +49,5 @@ COPY --from=build /app/.next ./.next
 # install private plugin packages into it during the deployment build.
 RUN mkdir -p plugins && chown -R node:node /app
 USER node
-EXPOSE 3000
+EXPOSE 3100
 CMD ["npm", "run", "start"]

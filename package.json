@@ -6,11 +6,11 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run build:sdk && next dev",
+    "dev": "npm run build:sdk && next dev -p ${PORT:-3100}",
     "build": "npm run build:sdk && next build",
     "build:sdk": "npm run build -w @provmon/retailer-plugin-sdk",
     "dev:sdk": "npm run dev -w @provmon/retailer-plugin-sdk",
-    "start": "next start",
+    "start": "next start -p ${PORT:-3100}",
     "lint": "eslint",
     "typecheck": "npm run build:sdk && tsc --noEmit",
     "postinstall": "prisma generate",

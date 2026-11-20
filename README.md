@@ -72,7 +72,15 @@ npm run db:migrate # applies migrations (creates tables)
 ### 4. Run
 
 ```bash
-npm run dev        # web app on http://localhost:3000
+npm run dev        # web app on http://localhost:3100
+```
+
+The dev and production servers default to port `3100` (set `PORT` to override).
+The production compose stack maps the container's port `3100` to
+`APP_PORT` on the host (default `3100`):
+
+```bash
+podman compose -f docker-compose.yml -f compose.prod.yml up -d --build
 ```
 
 ### 5. Retailer plugins
