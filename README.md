@@ -5,6 +5,57 @@ full catalogue with continuous shared price history, then paste a product URL
 or add a catalogue product to monitoring and get email notifications when it
 comes back in stock or drops to your target price.
 
+![ProvMon dashboard showing monitored products, recent notifications, and recent checks](docs/screenshots/dashboard.webp)
+
+## Features
+
+- **Retailer-wide catalogue discovery** — import a retailer's full catalogue and refresh it on a schedule.
+- **Continuous shared price history** — every catalogue refresh and monitoring check appends observations, so history builds for products whether or not anyone is monitoring them.
+- **Flexible monitoring** — monitor a supported product URL or a catalogue listing with back-in-stock and target-price conditions.
+- **Email alerts** — send notifications through Resend, with per-user preferences, configurable check intervals, and a local Mailpit fallback for development.
+- **Cross-retailer inventory** — save products once and see current availability and the best price across their listings.
+- **Plugin-based retailers** — retailer integrations are external npm packages implementing [`@provmon/retailer-plugin-sdk`](packages/retailer-plugin-sdk), keeping retailer-specific code out of the core app.
+
+## Screenshots
+
+### Retailer-wide catalogue
+
+Search a retailer's full catalogue and filter by category, brand, stock, and
+price. Every listing collects price history, whether or not it is being
+monitored.
+
+![Catalogue browser searching CeX for PlayStation 5 products with stock and price filters](docs/screenshots/catalogue.webp)
+
+### Shared price history
+
+Catalogue refreshes and monitoring checks append to the same timeline. Set a
+target price and compare it with the observed range and current listing price.
+
+![Catalogue product detail showing price history chart and target price](docs/screenshots/catalogue-product.webp)
+
+### Inventory
+
+Save products to a cross-retailer inventory and see availability, monitoring
+status, and the best current price.
+
+![Inventory with saved products, availability, and best prices](docs/screenshots/inventory.webp)
+
+### Monitoring
+
+Manage monitoring conditions, targets, check intervals, and status for every
+tracked product.
+
+![Monitored products with targets, conditions, and check intervals](docs/screenshots/monitoring.webp)
+
+### Retailer plugins
+
+Catalogue discovery runs, plugin status, and refresh schedules are managed per
+retailer.
+
+![Retailer management page showing Cash Converters and CeX catalogue discovery status](docs/screenshots/retailers.webp)
+
+_Screenshots use demo data._
+
 ## Stack
 
 - **Frontend/backend**: Next.js 16 (App Router), TypeScript
